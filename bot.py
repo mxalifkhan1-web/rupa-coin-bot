@@ -5,13 +5,11 @@ import os
 
 TOKEN = '8895342557:AAF08qNX-3yWm2vZyXp3K2fA7-Yrul6D1hw'
 ADMIN_ID = 7817231619
-BOT_USERNAME = 'mdalif268'
+BOT_USERNAME = 'alif357_bot'
 
 bot = telebot.TeleBot(TOKEN)
 DATA_FILE = "user_database.json"
 
-current_ad_link = "https://telega.in"  
-pro_task_link = "https://google.com" 
 COMMUNITY_LINK = "https://t.me/rupacoin27bd"
 
 def load_data():
@@ -21,6 +19,7 @@ def load_data():
     return {}
 
 def save_data(data):
+    if not isinstance(data, dict): return
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
@@ -35,76 +34,61 @@ def get_or_create_user(user_id, first_name):
 
 def menu():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    m.add('🏠 Home', '📋 Task (Ads)', '⭐ Pro Task', '💰 Wallet', '👥 Referral', '💸 Withdraw', '👥 Community')
+    m.add('🏠 Home', '💰 Wallet', '👥 Referral', '⚡ Pro Task', '💸 Withdraw', '👥 Community')
     return m
 
 @bot.message_handler(commands=['start'])
 def start(msg):
+    u_id = str(msg.from_user.id)
+    args = msg.text.split()
+    if len(args) > 1:
+        ref_id = args[1]
+        if ref_id != u_id and ref_id in user_data:
+            user_data[ref_id]['balance'] += 5.0
+            save_data(user_data)
+            bot.send_message(ref_id, "🎉 নতুন রেফারেল জয়েন করায় আপনি ৫ কয়েন পেয়েছেন!")
+    
     get_or_create_user(msg.from_user.id, msg.from_user.first_name)
-    bot.send_message(msg.chat.id, "✨ **Rupa Coin বতে স্বাগতম!**", parse_mode="Markdown", reply_markup=menu())
+    bot.send_message(msg.chat.id, "স্বাগতম! কাজ শুরু করতে মেনু ব্যবহার করুন।", reply_markup=menu())
 
 @bot.message_handler(func=lambda msg: True)
 def reply(msg):
-    global current_ad_link, pro_task_link
     txt, cid = msg.text, msg.chat.id
-    u_id = str(msg.from_user.id)
     user = get_or_create_user(msg.from_user.id, msg.from_user.first_name)
     
     if txt == '🏠 Home': 
-        bot.send_message(cid, f"👤 **ব্যবহারকারী:** {user['name']}\n💰 **ব্যালেন্স:** {user['balance']:.1f} Rupa Coin", parse_mode="Markdown")
+        bot.send_message(cid, "🏠 হোমে স্বাগতম!")
     
-    elif txt == '📋 Task (Ads)': 
-        user_data[u_id]['balance'] += 0.2
-        save_data(user_data)
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(text="🎁 ভিজিট করুন", url=current_ad_link))
-        bot.send_message(cid, "✅ বিজ্ঞাপন ভিজিট সম্পন্ন! ০.২ কয়েন যোগ হয়েছে।", reply_markup=markup)
-        
-    elif txt == '⭐ Pro Task': 
-        user_data[u_id]['balance'] += 0.5
-        save_data(user_data)
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(text="⭐ Pro Task ভিজিট", url=pro_task_link))
-        bot.send_message(cid, "✅ প্রো টাস্ক সম্পন্ন! ০.৫ কয়েন যোগ হয়েছে।", reply_markup=markup)
-        
     elif txt == '💰 Wallet': 
-        bot.send_message(cid, f"💰 **আপনার ওয়ালেট:**\nমোট ব্যালেন্স: {user_data[u_id]['balance']:.1f} Rupa Coin", parse_mode="Markdown")
-        
-    elif txt == '💸 Withdraw':
-        # এডমিনের কাছে নোটিফিকেশন পাঠানো
-        admin_message = f"🔔 **নতুন উইথড্র রিকোয়েস্ট!**\n\n👤 **ইউজার:** {user['name']}\n🆔 **ID:** {u_id}\n💰 **ব্যালেন্স:** {user['balance']:.1f}\n📱 **বিকাশ:** {user.get('bkash', 'Not Set')}\n📱 **নগদ:** {user.get('nagad', 'Not Set')}"
-        bot.send_message(ADMIN_ID, admin_message, parse_mode="Markdown")
-        
-        # ইউজারকে রিপ্লাই দেওয়া
-        bot.send_message(cid, f"💸 **উইথড্র রিকোয়েস্ট পাঠানো হয়েছে!**\n\nঅ্যাডমিন আপনার রিকোয়েস্টটি চেক করে পেমেন্ট পাঠিয়ে দেবে।\n\n📱 আপনার সেট করা নম্বর:\nবিকাশ: {user.get('bkash', 'Not Set')}\nনগদ: {user.get('nagad', 'Not Set')}", parse_mode="Markdown")
+        bot.send_message(cid, f"💰 আপনার বর্তমান ব্যালেন্স: {user['balance']} Rupa Coin")
         
     elif txt == '👥 Referral':
-        ref_link = f"https://t.me/{BOT_USERNAME}?start={u_id}"
-        bot.send_message(cid, f"👥 **আপনার রেফারেল লিংক:**\n`{ref_link}`", parse_mode="Markdown")
+        ref_link = f"https://t.me/{BOT_USERNAME}?start={str(msg.from_user.id)}"
+        bot.send_message(cid, f"👥 আপনার রেফারেল লিংক:\n`{ref_link}`\n\nপ্রতি নতুন জয়েনিংয়ে ৫ কয়েন!")
 
-    elif txt == '👥 Community':
+    elif txt == '⚡ Pro Task':
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(text="💬 অফিসিয়াল গ্রুপে জয়েন করুন", url=COMMUNITY_LINK))
-        bot.send_message(cid, "আমাদের কমিউনিটিতে জয়েন করতে নিচে ক্লিক করুন:", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton(text="⚡ টাস্ক সম্পন্ন করে ০.৪ কয়েন নিন", callback_data="pro_task"))
+        bot.send_message(cid, "লিংকে ক্লিক করে টাস্ক পূর্ণ করুন এবং নিচে বাটনে চাপুন:", reply_markup=markup)
         
-    else: 
-        bot.send_message(cid, "দয়া করে মেনু থেকে সঠিক বাটনটি চাপুন।", reply_markup=menu())
+    elif txt == '💸 Withdraw':
+        if user['balance'] >= 200:
+            bot.send_message(cid, "✅ উইথড্র রিকোয়েস্ট অ্যাডমিনের কাছে পাঠানো হয়েছে।")
+            bot.send_message(ADMIN_ID, f"🔔 উইথড্র রিকোয়েস্ট: {user['name']} (ব্যালেন্স: {user['balance']})")
+        else:
+            bot.send_message(cid, f"⚠️ দুঃখিত, উইথড্র করতে ২০০ কয়েন প্রয়োজন। বর্তমান ব্যালেন্স: {user['balance']}")
+            
+    elif txt == '👥 Community':
+        bot.send_message(cid, f"আমাদের গ্রুপ লিংক: {COMMUNITY_LINK}")
 
-@bot.message_handler(commands=['setbkash', 'setnagad'])
-def set_payment(msg):
-    u_id = str(msg.from_user.id)
-    cmd = msg.text.split()
-    if len(cmd) < 2:
-        bot.send_message(msg.chat.id, "⚠️ ভুল ফরম্যাট! লিখুন: /setbkash 017xxxxxxxx")
-        return
-    val = cmd[1]
-    if 'bkash' in msg.text:
-        user_data[u_id]['bkash'] = val
-        bot.send_message(msg.chat.id, f"✅ বিকাশ নম্বর সেট হয়েছে: {val}")
-    else:
-        user_data[u_id]['nagad'] = val
-        bot.send_message(msg.chat.id, f"✅ নগদ নম্বর সেট হয়েছে: {val}")
-    save_data(user_data)
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    u_id = str(call.from_user.id)
+    if call.data == "pro_task":
+        user_data[u_id]['balance'] += 0.4
+        save_data(user_data)
+        bot.answer_callback_query(call.id, "✅ ০.৪ কয়েন সফলভাবে যোগ হয়েছে!")
+        bot.send_message(call.message.chat.id, "✅ আপনার ব্যালেন্সে ০.৪ কয়েন যোগ হয়েছে।")
 
 from flask import Flask
 import threading

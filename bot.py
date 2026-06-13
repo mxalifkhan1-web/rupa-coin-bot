@@ -15,7 +15,7 @@ COMMUNITY_LINK = "https://t.me/rupacoin27bd"
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# --- শক্তিশালী ডেটাবেস লোডার ---
+# --- ডেটাবেস হ্যান্ডলার ---
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -31,25 +31,21 @@ def save_data(data):
 
 data = load_data()
 
-# --- মেইন বট লুপ (সবসময় একটিভ রাখার জন্য) ---
+# --- শক্তিশালী ২৪/৭ বট রানিং ফিচার ---
 def run_bot():
     while True:
         try:
-            print("বট চালু হচ্ছে...")
+            print("Bot is starting...")
             bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except Exception as e:
-            print(f"বট ক্র্যাশ করেছে, ৫ সেকেন্ড পর রিস্টার্ট হচ্ছে: {e}")
-            time.sleep(5) # অটো রিস্টার্টের জন্য অপেক্ষা
+            print(f"Error occurred: {e}. Restarting in 5 seconds...")
+            time.sleep(5)
 
-# --- ফ্লাস্ক সার্ভার (রেন্ডারে বটকে জাগিয়ে রাখার জন্য) ---
 @app.route('/')
 def home():
     return "Bot is running 24/7!"
 
-def start_server():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-# --- বট ফিচারসমূহ ---
+# --- মেইন বট লজিক ---
 @bot.message_handler(commands=['start'])
 def start(msg):
     u_id = str(msg.from_user.id)
@@ -58,8 +54,8 @@ def start(msg):
         save_data(data)
     
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    m.add('👤 Profile', '📋 Task (Ads)', '⚡ Pro Task', '💰 Wallet', '👥 Referral', '💸 Withdraw', '👥 Community')
-    bot.send_message(msg.chat.id, f"✨ স্বাগতম {msg.from_user.first_name}! কাজ শুরু করুন।", reply_markup=m)
+    m.add('👤 Profile', '📋 Task (Ads)', '⚡ Pro Task', '💰 Wallet', '👥 Referral', '👥 Community')
+    bot.send_message(msg.chat.id, f"✨ স্বাগতম {msg.from_user.first_name}!", reply_markup=m)
 
 @bot.message_handler(func=lambda msg: True)
 def reply(msg):
@@ -68,45 +64,60 @@ def reply(msg):
     user = data['users'][u_id]
     txt = msg.text
 
-    if txt == '💰 Wallet':
+    if txt == '👤 Profile':
+        bot.send_message(msg.chat.id, f"👤 প্রোফাইল:\n\n🆔 আইডি: {u_id}\n👤 নাম: {user['name']}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}")
+    
+    elif txt == '💰 Wallet':
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📱 বিকাশ সেট", callback_data="set_bkash"),
                    types.InlineKeyboardButton("📱 নগদ সেট", callback_data="set_nagad"))
-        bot.send_message(msg.chat.id, f"💰 ব্যালেন্স: {user['balance']} Rupa Coin\n\nপেমেন্ট নম্বর সেট করুন:", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("💸 উইথড্র করুন", callback_data="do_withdraw"))
+        bot.send_message(msg.chat.id, f"💰 ব্যালেন্স: {user['balance']} Rupa Coin\n\nপেমেন্ট মেথড সেট করুন বা উইথড্র করুন:", reply_markup=markup)
     
     elif txt == '📋 Task (Ads)':
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔗 লিংকে যান", callback_data="click_ads"))
-        bot.send_message(msg.chat.id, "লিংকে ক্লিক করুন, পয়েন্ট অটো যোগ হবে:", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("🔗 লিংকে প্রবেশ করুন", callback_data="click_ads"))
+        bot.send_message(msg.chat.id, "লিংকে ক্লিক করুন:", reply_markup=markup)
 
     elif txt == '⚡ Pro Task':
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🔗 প্রো-লিংকে যান", callback_data="click_pro"))
-        bot.send_message(msg.chat.id, "লিংকে ক্লিক করুন, পয়েন্ট অটো যোগ হবে:", reply_markup=markup)
+        markup.add(types.InlineKeyboardButton("🔗 প্রো-লিংকে প্রবেশ করুন", callback_data="click_pro"))
+        bot.send_message(msg.chat.id, "লিংকে ক্লিক করুন:", reply_markup=markup)
 
-    elif txt == '💸 Withdraw':
-        if user['balance'] >= 300:
-            bot.send_message(ADMIN_ID, f"🔔 উইথড্র রিকোয়েস্ট!\n👤 নাম: {user['name']}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}\n💰 ব্যালেন্স: {user['balance']}")
-            user['balance'] = 0.0
-            save_data(data)
-            bot.send_message(msg.chat.id, "✅ উইথড্র রিকোয়েস্ট সফল!")
-        else:
-            bot.send_message(msg.chat.id, f"⚠️ ৩০০ পয়েন্ট প্রয়োজন। বর্তমান: {user['balance']}")
+    elif txt == '👥 Referral':
+        bot.send_message(msg.chat.id, f"আপনার রেফারেল লিংক:\nhttps://t.me/{BOT_USERNAME}?start={u_id}")
+
+    elif txt == '👥 Community':
+        bot.send_message(msg.chat.id, f"জয়েন করুন: {COMMUNITY_LINK}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     u_id = str(call.from_user.id)
+    user = data['users'][u_id]
+
     if call.data == "set_bkash":
         msg = bot.send_message(call.message.chat.id, "আপনার বিকাশ নম্বরটি লিখুন:")
         bot.register_next_step_handler(msg, lambda m: save_num(m, 'bkash'))
     elif call.data == "set_nagad":
         msg = bot.send_message(call.message.chat.id, "আপনার নগদ নম্বরটি লিখুন:")
         bot.register_next_step_handler(msg, lambda m: save_num(m, 'nagad'))
+    
+    elif call.data == "do_withdraw":
+        if user['balance'] >= 300:
+            bot.send_message(ADMIN_ID, f"🔔 উইথড্র রিকোয়েস্ট!\n👤 নাম: {user['name']}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}\n💰 ব্যালেন্স: {user['balance']}")
+            user['balance'] = 0.0
+            save_data(data)
+            bot.answer_callback_query(call.id, "✅ উইথড্র রিকোয়েস্ট সফল!")
+            bot.edit_message_text("✅ রিকোয়েস্ট অ্যাডমিনের কাছে পাঠানো হয়েছে।", call.message.chat.id, call.message.message_id)
+        else:
+            bot.answer_callback_query(call.id, f"⚠️ ৩০০ পয়েন্ট প্রয়োজন! আপনার: {user['balance']}")
+    
     elif call.data == "click_ads":
         data['users'][u_id]['balance'] += 0.2
         save_data(data)
         bot.answer_callback_query(call.id, "✅ ০.২ পয়েন্ট যোগ হয়েছে!")
         bot.edit_message_text(f"লিংকে যান: {data['tasks']['ads']}", call.message.chat.id, call.message.message_id)
+    
     elif call.data == "click_pro":
         data['users'][u_id]['balance'] += 0.4
         save_data(data)
@@ -118,8 +129,9 @@ def save_num(msg, key):
     save_data(data)
     bot.reply_to(msg, f"✅ আপনার {key} নম্বর সেভ হয়েছে!")
 
-# --- বট ও ফ্লাস্ক একসাথে চালানো ---
+# --- বট ও সার্ভার একসাথে চালানো ---
 if __name__ == "__main__":
-    threading.Thread(target=start_server).start() # ফ্লাস্ক সার্ভার চালু
-    run_bot() # বট চালু
-
+    # Flask ওয়েব সার্ভার আলাদা থ্রেডে চালু
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
+    # বট মেইন থ্রেডে চালু
+    run_bot()

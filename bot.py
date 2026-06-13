@@ -11,10 +11,9 @@ bot = telebot.TeleBot(TOKEN)
 DATA_FILE = "user_database.json"
 
 current_ad_link = "https://telega.in"  
-current_ad_text = "📝 নিচে দেওয়া বাটনে ক্লিক করে বিজ্ঞাপনটি দেখুন এবং কয়েন আর্ন করুন!"
+pro_task_link = "https://google.com" 
 COMMUNITY_LINK = "https://t.me/rupacoin27bd"
 
-# ইমোজি ও বাংলা ফিক্স করার জন্য এনকোডিং যোগ করা হয়েছে
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -30,104 +29,88 @@ user_data = load_data()
 def get_or_create_user(user_id, first_name):
     u_id = str(user_id)
     if u_id not in user_data:
-        user_data[u_id] = {
-            'name': first_name,
-            'balance': 0.0,
-            'referral_code': f"RUPA{user_id}",
-            'bkash_num': 'Not Set',  
-            'nagad_num': 'Not Set'   
-        }
-    if 'bkash_num' not in user_data[u_id]:
-        user_data[u_id]['bkash_num'] = 'Not Set'
-    if 'nagad_num' not in user_data[u_id]:
-        user_data[u_id]['nagad_num'] = 'Not Set'
+        user_data[u_id] = {'name': first_name, 'balance': 0.0, 'bkash': 'Not Set', 'nagad': 'Not Set'}
     save_data(user_data)
     return user_data[u_id]
 
 def menu():
-    m = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    m.add('🏠 Home', '📋 Task (Ads)', '💰 Wallet')
-    m.add('👥 Referral', '💸 Withdraw', '👥 Community')
+    m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    m.add('🏠 Home', '📋 Task (Ads)', '⭐ Pro Task', '💰 Wallet', '👥 Referral', '💸 Withdraw', '👥 Community')
     return m
-
-@bot.message_handler(commands=['setlink'])
-def set_ad_link(msg):
-    global current_ad_link
-    if msg.from_user.id != ADMIN_ID:
-        bot.send_message(msg.chat.id, "❌ আপনি এই বটের অ্যাডমিন নন!")
-        return
-    command_text = msg.text.split(maxsplit=1)
-    if len(command_text) < 2:
-        bot.send_message(msg.chat.id, "⚠️ ব্যবহারের নিয়ম: /setlink https://নতুন-অ্যাড-লিংক.com")
-        return
-    current_ad_link = command_text[1].strip()
-    bot.send_message(msg.chat.id, f"✅ বিজ্ঞাপনের লিংক সফলভাবে আপডেট হয়েছে!")
-
-@bot.message_handler(commands=['settext'])
-def set_ad_text(msg):
-    global current_ad_text
-    if msg.from_user.id != ADMIN_ID:
-        bot.send_message(msg.chat.id, "❌ আপনি এই বটের অ্যাডমিন নন!")
-        return
-    command_text = msg.text.split(maxsplit=1)
-    if len(command_text) < 2:
-        bot.send_message(msg.chat.id, "⚠️ ব্যবহারের নিয়ম: /settext আপনার নতুন বিজ্ঞাপনের বিবরণ")
-        return
-    current_ad_text = command_text[1]
-    bot.send_message(msg.chat.id, f"✅ বিজ্ঞাপনের বিবরণ সফলভাবে আপডেট হয়েছে!")
-
-@bot.message_handler(commands=['broadcast'])
-def broadcast_to_all(msg):
-    if msg.from_user.id != ADMIN_ID:
-        bot.send_message(msg.chat.id, "❌ আপনি এই বটের অ্যাডমিন নন!")
-        return
-    command_text = msg.text.split(maxsplit=1)
-    if len(command_text) < 2:
-        bot.send_message(msg.chat.id, "⚠️ ব্যবহারের নিয়ম: /broadcast আপনার মেসেজ")
-        return
-    ad_message = command_text[1]
-    for u_id in user_data.keys():
-        try: bot.send_message(int(u_id), ad_message)
-        except: pass
-    bot.send_message(msg.chat.id, "✅ ব্রডকাস্ট সম্পন্ন হয়েছে!")
 
 @bot.message_handler(commands=['start'])
 def start(msg):
-    user = get_or_create_user(msg.from_user.id, msg.from_user.first_name)
-    bot.send_message(msg.chat.id, f"স্বাগতম {user['name']}! Rupa Coin আর্নিং বতে আপনাকে স্বাগতম।", reply_markup=menu())
+    get_or_create_user(msg.from_user.id, msg.from_user.first_name)
+    bot.send_message(msg.chat.id, "✨ **Rupa Coin বতে স্বাগতম!**", parse_mode="Markdown", reply_markup=menu())
 
 @bot.message_handler(func=lambda msg: True)
 def reply(msg):
-    global current_ad_link, current_ad_text
+    global current_ad_link, pro_task_link
     txt, cid = msg.text, msg.chat.id
     u_id = str(msg.from_user.id)
     user = get_or_create_user(msg.from_user.id, msg.from_user.first_name)
     
-    if 'Home' in txt: 
-        bot.send_message(cid, f"🏡 প্রোফাইল:\n👤 নাম: {user['name']}\n💰 ব্যালেন্স: {user['balance']:.1f} Rupa Coin")
-    elif 'Task' in txt: 
+    if txt == '🏠 Home': 
+        bot.send_message(cid, f"👤 **ব্যবহারকারী:** {user['name']}\n💰 **ব্যালেন্স:** {user['balance']:.1f} Rupa Coin", parse_mode="Markdown")
+    
+    elif txt == '📋 Task (Ads)': 
         user_data[u_id]['balance'] += 0.2
         save_data(user_data)
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(text="🎁 বিজ্ঞাপন দেখুন", url=current_ad_link))
-        bot.send_message(cid, f"{current_ad_text}\n\n*(০.২ কয়েন যোগ হয়েছে)*", reply_markup=markup)
-    elif 'Wallet' in txt: 
-        bot.send_message(cid, f"💰 ব্যালেন্স: {user_data[u_id]['balance']:.1f}\n📱 বিকাশ: {user_data[u_id]['bkash_num']}\n📱 নগদ: {user_data[u_id]['nagad_num']}")
-    elif 'Community' in txt:
+        markup.add(types.InlineKeyboardButton(text="🎁 ভিজিট করুন", url=current_ad_link))
+        bot.send_message(cid, "✅ বিজ্ঞাপন ভিজিট সম্পন্ন! ০.২ কয়েন যোগ হয়েছে।", reply_markup=markup)
+        
+    elif txt == '⭐ Pro Task': 
+        user_data[u_id]['balance'] += 0.5
+        save_data(user_data)
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(text="💬 গ্রুপে জয়েন করুন", url=COMMUNITY_LINK))
-        bot.send_message(cid, "আমাদের অফিসিয়াল কমিউনিটি:", reply_markup=markup)
-    else: 
-        bot.send_message(cid, "দয়া করে মেনু থেকে বাটন চাপুন।", reply_markup=menu())
+        markup.add(types.InlineKeyboardButton(text="⭐ Pro Task ভিজিট", url=pro_task_link))
+        bot.send_message(cid, "✅ প্রো টাস্ক সম্পন্ন! ০.৫ কয়েন যোগ হয়েছে।", reply_markup=markup)
+        
+    elif txt == '💰 Wallet': 
+        bot.send_message(cid, f"💰 **আপনার ওয়ালেট:**\nমোট ব্যালেন্স: {user_data[u_id]['balance']:.1f} Rupa Coin", parse_mode="Markdown")
+        
+    elif txt == '💸 Withdraw':
+        # এডমিনের কাছে নোটিফিকেশন পাঠানো
+        admin_message = f"🔔 **নতুন উইথড্র রিকোয়েস্ট!**\n\n👤 **ইউজার:** {user['name']}\n🆔 **ID:** {u_id}\n💰 **ব্যালেন্স:** {user['balance']:.1f}\n📱 **বিকাশ:** {user.get('bkash', 'Not Set')}\n📱 **নগদ:** {user.get('nagad', 'Not Set')}"
+        bot.send_message(ADMIN_ID, admin_message, parse_mode="Markdown")
+        
+        # ইউজারকে রিপ্লাই দেওয়া
+        bot.send_message(cid, f"💸 **উইথড্র রিকোয়েস্ট পাঠানো হয়েছে!**\n\nঅ্যাডমিন আপনার রিকোয়েস্টটি চেক করে পেমেন্ট পাঠিয়ে দেবে।\n\n📱 আপনার সেট করা নম্বর:\nবিকাশ: {user.get('bkash', 'Not Set')}\nনগদ: {user.get('nagad', 'Not Set')}", parse_mode="Markdown")
+        
+    elif txt == '👥 Referral':
+        ref_link = f"https://t.me/{BOT_USERNAME}?start={u_id}"
+        bot.send_message(cid, f"👥 **আপনার রেফারেল লিংক:**\n`{ref_link}`", parse_mode="Markdown")
 
-# --- রেন্ডার সার্ভার ---
-print("Bot running...")
+    elif txt == '👥 Community':
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(text="💬 অফিসিয়াল গ্রুপে জয়েন করুন", url=COMMUNITY_LINK))
+        bot.send_message(cid, "আমাদের কমিউনিটিতে জয়েন করতে নিচে ক্লিক করুন:", reply_markup=markup)
+        
+    else: 
+        bot.send_message(cid, "দয়া করে মেনু থেকে সঠিক বাটনটি চাপুন।", reply_markup=menu())
+
+@bot.message_handler(commands=['setbkash', 'setnagad'])
+def set_payment(msg):
+    u_id = str(msg.from_user.id)
+    cmd = msg.text.split()
+    if len(cmd) < 2:
+        bot.send_message(msg.chat.id, "⚠️ ভুল ফরম্যাট! লিখুন: /setbkash 017xxxxxxxx")
+        return
+    val = cmd[1]
+    if 'bkash' in msg.text:
+        user_data[u_id]['bkash'] = val
+        bot.send_message(msg.chat.id, f"✅ বিকাশ নম্বর সেট হয়েছে: {val}")
+    else:
+        user_data[u_id]['nagad'] = val
+        bot.send_message(msg.chat.id, f"✅ নগদ নম্বর সেট হয়েছে: {val}")
+    save_data(user_data)
+
 from flask import Flask
 import threading
 app = Flask(__name__)
 @app.route('/')
 def home(): return "Bot is running!"
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port)).start()
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
     bot.infinity_polling()

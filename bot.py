@@ -2,99 +2,113 @@ import telebot
 from telebot import types
 import json
 import os
+import threading
+import time
+from flask import Flask
 
+# কনফিগারেশন
 TOKEN = '8895342557:AAF08qNX-3yWm2vZyXp3K2fA7-Yrul6D1hw'
 ADMIN_ID = 7817231619
 BOT_USERNAME = 'alif357_bot'
-
-bot = telebot.TeleBot(TOKEN)
 DATA_FILE = "user_database.json"
 
-COMMUNITY_LINK = "https://t.me/rupacoin27bd"
+bot = telebot.TeleBot(TOKEN)
+app = Flask(__name__)
 
+# ডাটাবেস হ্যান্ডলার
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {}
+    return {'users': {}, 'tasks': {'ads': 'https://telega.in', 'pro': 'https://google.com'}}
 
 def save_data(data):
-    if not isinstance(data, dict): return
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-user_data = load_data()
+data = load_data()
 
-def get_or_create_user(user_id, first_name):
-    u_id = str(user_id)
-    if u_id not in user_data:
-        user_data[u_id] = {'name': first_name, 'balance': 0.0, 'bkash': 'Not Set', 'nagad': 'Not Set'}
-    save_data(user_data)
-    return user_data[u_id]
+# --- বট স্ট্যাবিলিটি ও অটো-রিস্টার্ট ---
+def run_bot():
+    while True:
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"বট রিস্টার্ট নিচ্ছে... এরর: {e}")
+            time.sleep(5)
 
-def menu():
-    m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    m.add('🏠 Home', '💰 Wallet', '👥 Referral', '⚡ Pro Task', '💸 Withdraw', '👥 Community')
-    return m
+# --- অ্যাডমিন কন্ট্রোল ---
+@bot.message_handler(commands=['setlink'])
+def set_links(msg):
+    if msg.from_user.id != ADMIN_ID: return
+    parts = msg.text.split()
+    if len(parts) >= 3:
+        data['tasks'][parts[1]] = parts[2]
+        save_data(data)
+        bot.reply_to(msg, f"✅ {parts[1]} লিংক সফলভাবে আপডেট করা হয়েছে।")
 
+# --- মেনু ও প্রোফাইল ---
 @bot.message_handler(commands=['start'])
 def start(msg):
     u_id = str(msg.from_user.id)
-    args = msg.text.split()
-    if len(args) > 1:
-        ref_id = args[1]
-        if ref_id != u_id and ref_id in user_data:
-            user_data[ref_id]['balance'] += 5.0
-            save_data(user_data)
-            bot.send_message(ref_id, "🎉 নতুন রেফারেল জয়েন করায় আপনি ৫ কয়েন পেয়েছেন!")
+    if u_id not in data['users']:
+        data['users'][u_id] = {'name': msg.from_user.first_name, 'balance': 0.0, 'bkash': 'Not Set', 'nagad': 'Not Set'}
+        save_data(data)
     
-    get_or_create_user(msg.from_user.id, msg.from_user.first_name)
-    bot.send_message(msg.chat.id, "স্বাগতম! কাজ শুরু করতে মেনু ব্যবহার করুন।", reply_markup=menu())
+    # রেফারেল বোনাস
+    args = msg.text.split()
+    if len(args) > 1 and args[1] != u_id and args[1] in data['users']:
+        data['users'][args[1]]['balance'] += 5.0
+        save_data(data)
+
+    m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    m.add('👤 Profile', '📋 Task (Ads)', '⚡ Pro Task', '💰 Wallet', '👥 Referral', '💸 Withdraw', '👥 Community')
+    bot.send_message(msg.chat.id, f"স্বাগতম {msg.from_user.first_name}! Rupa Coin এ কাজ করে আয় করুন।", reply_markup=m)
 
 @bot.message_handler(func=lambda msg: True)
 def reply(msg):
-    txt, cid = msg.text, msg.chat.id
-    user = get_or_create_user(msg.from_user.id, msg.from_user.first_name)
-    
-    if txt == '🏠 Home': 
-        bot.send_message(cid, "🏠 হোমে স্বাগতম!")
-    
-    elif txt == '💰 Wallet': 
-        bot.send_message(cid, f"💰 আপনার বর্তমান ব্যালেন্স: {user['balance']} Rupa Coin")
-        
-    elif txt == '👥 Referral':
-        ref_link = f"https://t.me/{BOT_USERNAME}?start={str(msg.from_user.id)}"
-        bot.send_message(cid, f"👥 আপনার রেফারেল লিংক:\n`{ref_link}`\n\nপ্রতি নতুন জয়েনিংয়ে ৫ কয়েন!")
+    u_id = str(msg.from_user.id)
+    user = data['users'].get(u_id)
+    if not user: return
 
-    elif txt == '⚡ Pro Task':
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(text="⚡ টাস্ক সম্পন্ন করে ০.৪ কয়েন নিন", callback_data="pro_task"))
-        bot.send_message(cid, "লিংকে ক্লিক করে টাস্ক পূর্ণ করুন এবং নিচে বাটনে চাপুন:", reply_markup=markup)
-        
-    elif txt == '💸 Withdraw':
-        if user['balance'] >= 200:
-            bot.send_message(cid, "✅ উইথড্র রিকোয়েস্ট অ্যাডমিনের কাছে পাঠানো হয়েছে।")
-            bot.send_message(ADMIN_ID, f"🔔 উইথড্র রিকোয়েস্ট: {user['name']} (ব্যালেন্স: {user['balance']})")
+    if msg.text == '👤 Profile':
+        bot.send_message(msg.chat.id, f"👤 প্রোফাইল:\nID: {u_id}\nনাম: {user['name']}\nবিকাশ: {user['bkash']}\nনগদ: {user['nagad']}\n\nআপনার নাম্বার সেট করতে লিখুন:\n/setbkash [নাম্বার]\n/setnagad [নাম্বার]")
+    
+    elif msg.text.startswith(('/setbkash', '/setnagad')):
+        parts = msg.text.split()
+        if len(parts) > 1:
+            key = 'bkash' if 'bkash' in msg.text else 'nagad'
+            user[key] = parts[1]
+            save_data(data)
+            bot.reply_to(msg, f"✅ আপনার {key} নাম্বার আপডেট হয়েছে।")
+
+    elif msg.text == '💸 Withdraw':
+        if user['balance'] >= 300:
+            bot.send_message(ADMIN_ID, f"🔔 উইথড্র রিকোয়েস্ট!\n👤 ইউজার: {user['name']}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}\n💰 ব্যালেন্স: {user['balance']} কয়েন")
+            user['balance'] = 0.0  # ব্যালেন্স রিসেট
+            save_data(data)
+            bot.send_message(msg.chat.id, "✅ উইথড্র সফল! আপনার ব্যালেন্স জিরো হয়েছে এবং অ্যাডমিনকে জানানো হয়েছে।")
         else:
-            bot.send_message(cid, f"⚠️ দুঃখিত, উইথড্র করতে ২০০ কয়েন প্রয়োজন। বর্তমান ব্যালেন্স: {user['balance']}")
-            
-    elif txt == '👥 Community':
-        bot.send_message(cid, f"আমাদের গ্রুপ লিংক: {COMMUNITY_LINK}")
+            bot.send_message(msg.chat.id, f"⚠️ ৩০০ কয়েন হলে উইথড্র দিতে পারবেন। বর্তমান: {user['balance']}")
+
+    elif msg.text == '📋 Task (Ads)':
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔗 লিংকে যান", url=data['tasks']['ads']),
+                   types.InlineKeyboardButton("✅ কয়েন নিন", callback_data="add_ads"))
+        bot.send_message(msg.chat.id, "লিংকে ক্লিক করে ব্যাক এসে কয়েন নিন:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     u_id = str(call.from_user.id)
-    if call.data == "pro_task":
-        user_data[u_id]['balance'] += 0.4
-        save_data(user_data)
-        bot.answer_callback_query(call.id, "✅ ০.৪ কয়েন সফলভাবে যোগ হয়েছে!")
-        bot.send_message(call.message.chat.id, "✅ আপনার ব্যালেন্সে ০.৪ কয়েন যোগ হয়েছে।")
+    if call.data == "add_ads":
+        data['users'][u_id]['balance'] += 0.2
+        save_data(data)
+        bot.answer_callback_query(call.id, "✅ ০.২ কয়েন যোগ হয়েছে!")
 
-from flask import Flask
-import threading
-app = Flask(__name__)
 @app.route('/')
 def home(): return "Bot is running!"
+
 if __name__ == "__main__":
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
-    bot.infinity_polling()
+    port = int(os.environ.get("PORT", 5000))
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port)).start()
+    run_bot() # অটো-রিস্টার্ট ফাংশন চালু

@@ -10,7 +10,7 @@ BOT_USERNAME = 'mdalif268'
 bot = telebot.TeleBot(TOKEN)
 DATA_FILE = "user_database.json"
 
-# গ্লোবাল ভেরিয়েবল (অ্যাডমিন যেকোনো সময় এটি পরিবর্তন করতে পারবেন)
+# গলোবাল ভেরিয়াবল (অ্যাডমিন যেকোনো সময় এটি পরিবর্তন করতে পারবেন)
 current_ad_link = "https://telega.in"  
 current_ad_text = "📝 নিচে দেওয়া বাটনে ক্লিক করে বিজ্ঞাপনটি দেখুন এবং কয়েন আর্ন করুন!"
 COMMUNITY_LINK = "https://t.me/rupacoin27bd"  # আপনার গ্রুপের লিংক
@@ -303,5 +303,28 @@ def process_amount(msg, method, num):
     except Exception:
         bot.send_message(msg.chat.id, f"❌ সাময়িক ত্রুটি! অনুগ্রহ করে সরাসরি অ্যাডমিনের সাথে যোগাযোগ করুন।")
 
-print("Rupa Coin মাস্টার কন্ট্রোল ও উইথড্র সিস্টেম সহ বট সফলভাবে চালু হয়েছে...")
-bot.infinity_polling()
+
+# ==========================================
+# RENDER SERVER & THREADING INTEGRATION (রেন্ডার ফিক্স কোড)
+# ==========================================
+
+print("Rupa Coin মাস্টার কন্ট্রোল ও উইথড্র সিস্টেম সহ বট সফলভাবে চালু হয়েছে।")
+
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+if __name__ == "__main__":
+    # Render-এর পোর্ট হ্যান্ডেল করার জন্য Flask চালু করা
+    port = int(os.environ.get("PORT", 5000))
+    
+    # ব্যাকগ্রাউন্ডে ফ্ল্যাস্ক রান হবে যেন রেন্ডার টাইম আউট না দেয়
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, use_reloader=False)).start()
+    
+    # আপনার বটের মেইন পোলিং রান হবে এখানে
+    bot.infinity_polling()

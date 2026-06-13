@@ -31,21 +31,18 @@ def save_data(data):
 
 data = load_data()
 
-# --- শক্তিশালী ২৪/৭ বট রানিং ফিচার ---
+# --- বট রানার ---
 def run_bot():
     while True:
         try:
-            print("Bot is starting...")
             bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print(f"Error occurred: {e}. Restarting in 5 seconds...")
+        except:
             time.sleep(5)
 
 @app.route('/')
-def home():
-    return "Bot is running 24/7!"
+def home(): return "Bot is running 24/7!"
 
-# --- মেইন বট লজিক ---
+# --- বট লজিক ---
 @bot.message_handler(commands=['start'])
 def start(msg):
     u_id = str(msg.from_user.id)
@@ -60,6 +57,16 @@ def start(msg):
 @bot.message_handler(func=lambda msg: True)
 def reply(msg):
     u_id = str(msg.from_user.id)
+    
+    # অ্যাডমিন কমান্ড
+    if msg.text.startswith('/setlink') and u_id == str(ADMIN_ID):
+        parts = msg.text.split()
+        if len(parts) == 3:
+            data['tasks'][parts[1]] = parts[2]
+            save_data(data)
+            bot.reply_to(msg, f"✅ লিংক আপডেট হয়েছে: {parts[2]}")
+        return
+
     if u_id not in data['users']: return
     user = data['users'][u_id]
     txt = msg.text
@@ -112,26 +119,22 @@ def callback(call):
         else:
             bot.answer_callback_query(call.id, f"⚠️ ৩০০ পয়েন্ট প্রয়োজন! আপনার: {user['balance']}")
     
+    # পয়েন্ট যোগ হবে কিন্তু মেসেজ দেখাবে না
     elif call.data == "click_ads":
         data['users'][u_id]['balance'] += 0.2
         save_data(data)
-        bot.answer_callback_query(call.id, "✅ ০.২ পয়েন্ট যোগ হয়েছে!")
-        bot.edit_message_text(f"লিংকে যান: {data['tasks']['ads']}", call.message.chat.id, call.message.message_id)
+        bot.edit_message_text(f"🔗 লিংকে যান: {data['tasks']['ads']}", call.message.chat.id, call.message.message_id)
     
     elif call.data == "click_pro":
         data['users'][u_id]['balance'] += 0.4
         save_data(data)
-        bot.answer_callback_query(call.id, "✅ ০.৪ পয়েন্ট যোগ হয়েছে!")
-        bot.edit_message_text(f"লিংকে যান: {data['tasks']['pro']}", call.message.chat.id, call.message.message_id)
+        bot.edit_message_text(f"🔗 লিংকে যান: {data['tasks']['pro']}", call.message.chat.id, call.message.message_id)
 
 def save_num(msg, key):
     data['users'][str(msg.from_user.id)][key] = msg.text
     save_data(data)
     bot.reply_to(msg, f"✅ আপনার {key} নম্বর সেভ হয়েছে!")
 
-# --- বট ও সার্ভার একসাথে চালানো ---
 if __name__ == "__main__":
-    # Flask ওয়েব সার্ভার আলাদা থ্রেডে চালু
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
-    # বট মেইন থ্রেডে চালু
     run_bot()

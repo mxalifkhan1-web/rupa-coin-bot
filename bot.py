@@ -15,6 +15,9 @@ COMMUNITY_LINK = "https://t.me/rupacoin27bd"
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
+# ইউজারের ক্লিকের সময় ট্র্যাক করার জন্য গ্লোবাল ডিকশনারি
+user_click_timers = {}
+
 # --- ডেটাবেস হ্যান্ডলার ---
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -120,20 +123,29 @@ def reply(msg):
         markup.add(types.InlineKeyboardButton("💸 উইথড্র করুন", callback_data="do_withdraw"))
         bot.send_message(msg.chat.id, f"💰 ব্যালেন্স: {user['balance']} Rupa Coin\n\nপেমেন্ট মেথড সেট করুন বা উইথড্র করুন:", reply_markup=markup)
     
-    # টেলিগ্রাম অ্যাপের ভেতরে অ্যাড দেখা এবং রিয়েল-টাইম লাইভ কাউন্টডাউন টাইমার
+    # টাস্ক অপশন (লিংক ও ক্লেইম বাটনসহ সিকিউর মেথড)
     elif txt == '📋 Task (Ads)':
         ad_time = data['tasks']['ads_time']
         reward = data['tasks']['ads_reward']
         ad_url = data['tasks']['ads_link']
         
-        markup = types.InlineKeyboardMarkup()
-        # WebApp ব্যবহার করায় ওয়েবসাইটটি আলাদা ব্রাউজারে না গিয়ে টেলিগ্রামের ভেতরেই পপ-আপ আকারে খুলবে
-        markup.add(types.InlineKeyboardButton("👁️ এড টি দেখুন", web_app=types.WebAppInfo(url=ad_url)))
+        # ইউজার কখন টাস্কে ক্লিক করল, সেই সময়টি ব্যাকগ্রাউন্ড ডিকশনারিতে সেভ করা হচ্ছে
+        user_click_timers[u_id] = time.time()
         
-        sent_msg = bot.send_message(msg.chat.id, f"📋 **টাস্ক অ্যাড!**\n\n👉 **এড টি দেখুন**\n\n⚠️ নিচের বাটনে চাপ দিয়ে অ্যাডটি ওপেন করুন এবং টেলিগ্রামের ভেতরেই অপেক্ষা করুন।\n\n⏳ **সময় বাকি: {ad_time} সেকেন্ড**", reply_markup=markup)
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        # WebApp বাটন যার মাধ্যমে টেলিগ্রামের ভেতরেই চমৎকারভাবে বিজ্ঞাপন লোড হবে
+        markup.add(types.InlineKeyboardButton("🔗 Open Link (বিজ্ঞাপন দেখুন)", web_app=types.WebAppInfo(url=ad_url)))
+        markup.add(types.InlineKeyboardButton("🎁 Claim Reward / Check", callback_data="claim_task1"))
         
-        # ব্যাকগ্রাউন্ডে টাইমার থ্রেড চালানো (মেসেজ লাইভ এডিট হয়ে সময় কমবে)
-        threading.Thread(target=countdown_timer, args=(msg.chat.id, sent_msg.message_id, ad_time, reward, u_id, ad_url)).start()
+        bot.send_message(
+            msg.chat.id, 
+            f"📋 **টাস্ক অ্যাড!**\n\n"
+            f"👉 উপরে **'Open Link'** বাটনে চাপ দিয়ে অ্যাডটি ওপেন করুন এবং টেলিগ্রামের ভেতরে কমপক্ষে **{ad_time} সেকেন্ড** অপেক্ষা করুন।\n\n"
+            f"⚠️ নির্ধারিত সময় শেষ হওয়ার আগে ব্যাক আসলে কোনো কয়েন পাবেন না!\n\n"
+            f"⏳ সময় শেষ হলে এসে নিচের **'Claim Reward'** বাটনে চাপ দিন।", 
+            parse_mode="Markdown", 
+            reply_markup=markup
+        )
 
     elif txt == '⚡ Pro Task':
         target_channel = data['tasks']['channel_username']
@@ -158,48 +170,57 @@ def reply(msg):
     elif txt == '👥 Community':
         bot.send_message(msg.chat.id, f"জয়েন করুন: {COMMUNITY_LINK}")
 
-# লাইভ টাইমার কাউন্টডাউন ফাংশন
-def countdown_timer(chat_id, message_id, remaining_time, reward, u_id, ad_url):
-    while remaining_time > 0:
-        time.sleep(1)
-        remaining_time -= 1
-        try:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("👁️ এড টি দেখুন", web_app=types.WebAppInfo(url=ad_url)))
-            
-            # প্রতি সেকেন্ডে মেসেজ আপডেট করে টাইমার কমানো হবে
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=f"📋 **টাস্ক অ্যাড!**\n\n👉 **এড টি দেখুন**\n\n⚠️ নিচের বাটনে চাপ দিয়ে অ্যাডটি ওপেন করুন এবং টেলিগ্রামের ভেতরেই অপেক্ষা করুন।\n\n⏳ **সময় বাকি: {remaining_time} সেকেন্ড**",
-                reply_markup=markup
-            )
-        except:
-            # ইউজার চ্যাট ডিলিট বা ক্লিয়ার করলে এরর এড়ানোর জন্য
-            return
-            
-    # সময় শেষ হলে অটোমেটিক কয়েন যোগ হয়ে মেসেজ বদলে যাবে
-    try:
-        global data
-        data['users'][u_id]['balance'] += reward
-        save_data(data)
-        
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=f"🎉 **অভিনন্দন!**\n\nআপনি সফলভাবে পুরো সময় এড টি দেখেছেন। আপনার অ্যাকাউন্টে **{reward} Rupa Coin** যোগ করা হয়েছে! ✅"
-        )
-    except:
-        pass
-
+# --- কলব্যাক কুয়েরি হ্যান্ডলার (সব বাটন এক জায়গায় ট্র্যাকিং) ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
+    global data
     u_id = str(call.from_user.id)
     user = data['users'][u_id]
 
-    if call.data == "set_bkash":
+    # বিজ্ঞপ্তির ক্লেইম ভেরিফিকেশন টাইমার লজিক
+    if call.data == "claim_task1":
+        current_time = time.time()
+        ad_time = data['tasks']['ads_time']
+        reward = data['tasks']['ads_reward']
+        
+        # চেক করা হচ্ছে ইউজার আদৌ ওপেন লিংকে ক্লিক করেছিল কি না
+        if u_id in user_click_timers:
+            start_time = user_click_timers[u_id]
+            elapsed_time = current_time - start_time  # কত সেকেন্ড অতিবাহিত হয়েছে
+            
+            # শর্ত: নির্ধারিত সময় পার হতে হবে (অ্যাডমিন প্যানেল থেকে সেট করা সময় অনুযায়ী ডাইনামিক)
+            if elapsed_time >= ad_time:
+                # ইউজারের ডাটাবেজে ব্যালেন্স যোগ করা হচ্ছে
+                data['users'][u_id]['balance'] += reward
+                save_data(data)
+                
+                # সফলতার পপ-আপ মেসেজ
+                bot.answer_callback_query(call.id, text=f"✅ সফল হয়েছে! আপনি {reward} Rupa Coin বোনাস পেয়েছেন।", show_alert=True)
+                
+                # ইন্টারফেস আপডেট
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id, 
+                    message_id=call.message.message_id, 
+                    text=f"🎉 **অভিনন্দন!**\n\nআপনি সফলভাবে পুরো সময় এড টি দেখেছেন। আপনার অ্যাকাউন্টে **{reward} Rupa Coin** যোগ করা হয়েছে! ✅"
+                )
+                
+                # কাজ শেষ, টাইমার ডাটা রিমুভ
+                del user_click_timers[u_id]
+            else:
+                # সময় পূর্ণ না হলে এই ওয়ার্নিং দেখাবে এবং কোনো কয়েন দেবে না
+                remaining_time = int(ad_time - elapsed_time)
+                bot.answer_callback_query(
+                    call.id, 
+                    text=f"⚠️ আপনি ফাঁকিবাজি করছেন! বিজ্ঞাপনটি পুরোপুরি দেখা হয়নি। দয়া করে আরও {remaining_time} সেকেন্ড অপেক্ষা করুন।", 
+                    show_alert=True
+                )
+        else:
+            bot.answer_callback_query(call.id, text="❌ আপনি তো এখনও বিজ্ঞাপনটি ওপেনই করেননি! প্রথমে টাস্ক বাটনে চাপ দিন।", show_alert=True)
+
+    elif call.data == "set_bkash":
         msg = bot.send_message(call.message.chat.id, "আপনার বিকাশ নম্বরটি লিখুন:")
         bot.register_next_step_handler(msg, lambda m: save_num(m, 'bkash'))
+        
     elif call.data == "set_nagad":
         msg = bot.send_message(call.message.chat.id, "আপনার নগদ নম্বরটি লিখুন:")
         bot.register_next_step_handler(msg, lambda m: save_num(m, 'nagad'))
@@ -241,7 +262,7 @@ def callback(call):
                 save_data(data)
                 
                 bot.answer_callback_query(call.id, f"✅ সফল! {reward} Rupa Coin যোগ হয়েছে।", show_alert=True)
-                bot.edit_message_text(f"🎉 অভিনন্দন! আপনি সফলভাবে হয়েছেন এবং {reward} Rupa Coin জিতে নিয়েছেন।", call.message.chat.id, call.message.message_id)
+                bot.edit_message_text(f"🎉 অভিনন্দন! আপনি সফলভাবে জয়েন হয়েছেন এবং {reward} Rupa Coin জিতে নিয়েছেন।", call.message.chat.id, call.message.message_id)
             else:
                 bot.answer_callback_query(call.id, "❌ আপনি এখনও চ্যানেলে জয়েন করেননি! আগে জয়েন করুন তবেই কয়েন পাবেন।", show_alert=True)
         except Exception as e:

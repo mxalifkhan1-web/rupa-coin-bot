@@ -8,16 +8,14 @@ from flask import Flask
 TOKEN = '8895342557:AAF08qNX-3yWm2vZyXp3K2fA7-Yrul6D1hw'
 ADMIN_ID = 7817231619
 BOT_USERNAME = 'alif357_bot'
-DB_FILE = "user_database.db"  # ✅ এটি আপনার SQLite ডাটাবেজ ফাইল
+DB_FILE = "user_database.db"  
 COMMUNITY_LINK = "https://t.me/rupacoin27bd"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# মাল্টি-থ্রেডিংয়ে ডাটাবেজ লক বা ক্র্যাশ হওয়া আটকানোর লক মেকানিজম
 db_lock = threading.Lock()
 
-# সাময়িক সময়ের জন্য রিয়েল-টাইম ক্লিক ট্র্যাকিং ডিকশনারি (RAM অপ্টিমাইজড)
 user_click_timers = {}
 user_pro_clicks = {}
 
@@ -27,7 +25,6 @@ def init_db():
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        # ইউজার টেবিল তৈরি (যদি আগে থেকে না থাকে)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 u_id TEXT PRIMARY KEY,
@@ -39,7 +36,6 @@ def init_db():
             )
         ''')
         
-        # টাস্ক কনফিগারেশন টেবিল তৈরি
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY,
@@ -51,7 +47,6 @@ def init_db():
             )
         ''')
         
-        # ডিফল্ট টাস্ক ডেটা ইনসার্ট (টেবিল খালি থাকলে)
         cursor.execute("SELECT COUNT(*) FROM tasks")
         if cursor.fetchone()[0] == 0:
             cursor.execute('''
@@ -62,10 +57,8 @@ def init_db():
         conn.commit()
         conn.close()
 
-# ডাটাবেজ চালু করা
 init_db()
 
-# --- ডাটাবেজ থেকে ডেটা আনা-নেওয়ার সহজ ফাংশন ---
 def get_tasks_config():
     with db_lock:
         conn = sqlite3.connect(DB_FILE)
@@ -104,15 +97,15 @@ def add_user(u_id, name):
         finally:
             conn.close()
 
-# --- ব্যাকগ্রাউন্ড ক্যাশ ক্লিনার (RAM জ্যাম হওয়া থেকে বাঁচাবে) ---
+# --- ব্যাকগ্রাউন্ড ক্যাশ ক্লিনার ---
 def cache_cleaner():
     while True:
-        time.sleep(1800) # প্রতি ৩০ মিনিট পর পর ব্যাকগ্রাউন্ড মেমোরি রিফ্রেশ করবে
+        time.sleep(1800) 
         now = time.time()
         for uid, t in list(user_click_timers.items()):
             if now - t > 3600: user_click_timers.pop(uid, None)
         for uid, url in list(user_pro_clicks.items()):
-            user_pro_clicks.pop(uid, None)
+            if now - t > 7200: user_pro_clicks.pop(uid, None)
 
 threading.Thread(target=cache_cleaner, daemon=True).start()
 
@@ -238,7 +231,7 @@ def callback(call):
     config = get_tasks_config()
     if not user: return
 
-    # ================= প্রো টাস্ক ভেরিফিকেশন মেথড =================
+    # ================= প্রো টাস্ক লজিক =================
     if call.data == "get_pro_link":
         pro_url = config['pro_link']
         if pro_url in user['completed_pro_links']:
@@ -282,13 +275,13 @@ def callback(call):
             bot.edit_message_text(
                 chat_id=call.message.chat.id, 
                 message_id=call.message.message_id, 
-                text=f"✅ **প্রো টাস্ক সফলভাবে সম্পন্ন!**\n\nআপনি এই টাস্ক থেকে **{pro_reward} Rupa Coin** বোনাস পেয়েছেন। এই টাস্কটি আপনার জন্য চিরতরে লক করা হলো।"
+                text=f"✅ **PRO টাস্ক সফলভাবে সম্পন্ন!**\n\nআপনি এই টাস্ক থেকে **{pro_reward} Rupa Coin** বোনাস পেয়েছেন। এই টাস্কটি আপনার জন্য চিরতরে লক করা হলো।"
             )
             user_pro_clicks.pop(u_id, None)
         else:
             bot.answer_callback_query(call.id, text="❌ আপনি তো এখনও প্রো লিংকটি আনেননি বা লিংকে ক্লিক করেননি! প্রথমে লিংক বাটনে চাপ দিন।", show_alert=True)
             
-    # ================= সাধারণ টাস্ক (Ads) ভেরিফিকেশন মেথড =================
+    # ================= সাধারণ টাস্ক (Ads) লজিক =================
     elif call.data == "get_ad_link":
         ad_url = config['ads_link']
         user_click_timers[u_id] = time.time()
@@ -309,7 +302,7 @@ def callback(call):
                 new_balance = user['balance'] + reward
                 with db_lock:
                     conn = sqlite3.connect(DB_FILE)
-                    cursor = conn.append_user if hasattr(cursor, 'append_user') else cursor
+                    cursor = conn.cursor() # ✅ টাইপোটি এখানে পারফেক্টলি ফিক্স করা হয়েছে
                     cursor.execute("UPDATE users SET balance=? WHERE u_id=?", (new_balance, u_id))
                     conn.commit()
                     conn.close()
@@ -322,7 +315,7 @@ def callback(call):
         else:
             bot.answer_callback_query(call.id, text="❌ প্রথমে '১. বিজ্ঞাপন লিংকটি আনুন' বাটনে চাপ দিন।", show_alert=True)
 
-    # ================= পেমেন্ট ও ওয়ালেট মেথড =================
+    # ================= পেমেন্ট ও ওয়ালেট লজিক =================
     elif call.data == "set_bkash":
         msg = bot.send_message(call.message.chat.id, "আপনার বিকাশ নম্বরটি লিখুন:")
         bot.register_next_step_handler(msg, lambda m: save_num(m, 'bkash'))
@@ -332,7 +325,7 @@ def callback(call):
     
     elif call.data == "do_withdraw":
         if user['balance'] >= 300:
-            withdraw_msg = f"🚨 **جديد উইথড্র রিকোয়েস্ট!**\n\n👤 ইউজার: {user['name']}\n🆔 আইডি: {u_id}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}\n💰 পরিমাণ: {user['balance']} Rupa Coin"
+            withdraw_msg = f"🚨 **নতুন উইথড্র রিকোয়েস্ট!**\n\n👤 ইউজার: {user['name']}\n🆔 আইডি: {u_id}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}\n💰 পরিমাণ: {user['balance']} Rupa Coin"
             bot.send_message(ADMIN_ID, withdraw_msg, parse_mode="Markdown")
             
             with db_lock:

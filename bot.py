@@ -125,36 +125,25 @@ def reply(msg):
         markup.add(types.InlineKeyboardButton("💸 উইথড্র করুন", callback_data="do_withdraw"))
         bot.send_message(msg.chat.id, f"💰 ব্যালেন্স: {user['balance']} Rupa Coin\n\nপেমেন্ট মেথড সেট করুন বা উইথড্র করুন:", reply_markup=markup)
     
-    # 📋 নতুন টাস্ক সিস্টেম (চিটিং আটকানোর মেথড)
+    # 📋 টাস্ক বাটন চাপলে (এখানে কোনো টাইম ট্র্যাকিং শুরু হবে না)
     elif txt == '📋 Task (Ads)':
         ad_time = data['tasks']['ads_time']
-        ad_url = data['tasks']['ads_link']
         
-        # ইউজার যেন ডিরেক্টলি লিংক ট্র্যাকিং মেকানিজমে ঢুকতে পারে
-        # আমরা টেলিগ্রামের ইনলাইন ইউআরএল রিডাইরেকশন ব্যবহার করছি
-        # ইউজার লিংকে ক্লিক করলে বটের গ্লোবাল টাইম ট্র্যাকিং সক্রিয় করার জন্য আমরা একটা কাস্টম ইনলাইন বাটন দিচ্ছি
         markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        # বাটন ১: বিজ্ঞাপন দেখার লিংক (এই লিংকে ক্লিক করার পরই মূলত ঘড়ি কাউন্ট করবে)
-        # টেলিগ্রাম বটের মাধ্যমে ট্র্যাকিং সিস্টেম সচল করতে আমরা কলব্যাক কুয়েরি মেথড এবং ব্রাউজার ওপেন কম্বাইন করেছি
-        # কিন্তু সরাসরি লিংকে ক্লিক করাটা ট্র্যাক করতে আমাদের রিয়েল-টাইম ভেরিফায়ার লাগবে
-        
-        # 👑 ট্রিক: ইউজার যখনই এই বাটনে চাপ দেবে, তার টাইম ট্র্যাকার সক্রিয় হবে
-        # ইউজারকে অবশ্যই প্রথমে লিংকে ক্লিক করতে হবে, তারপর রিওয়ার্ড ক্লেইম করতে হবে
-        button_open = types.InlineKeyboardButton(text="🔗 Open Link (বিজ্ঞাপন দেখুন)", url=ad_url, callback_data="clicked_the_link")
-        button_claim = types.InlineKeyboardButton(text="🎁 Claim Reward / ভেরিফাই করুন", callback_data="claim_task1")
+        # এই বাটনে চাপ দিলে বট আসল বিজ্ঞপ্তির লিংক দেবে এবং টাইম কাউন্ট শুরু করবে
+        button_open = types.InlineKeyboardButton(text="🚀 ১. বিজ্ঞাপন লিংকটি আনুন", callback_data="get_ad_link")
+        button_claim = types.InlineKeyboardButton(text="🎁 ২. Claim Reward / ভেরিফাই", callback_data="claim_task1")
         
         markup.add(button_open, button_claim)
-        
-        # ইউজার যখন টাস্ক ওপেন করবে, বটের ডেটাতে তার ইনিশিয়াল টাইম ট্র্যাক শুরু হবে যাতে সে কোনো ফাঁকি না দিতে পারে
-        user_click_timers[u_id] = time.time()
         
         bot.send_message(
             msg.chat.id, 
             f"📋 **Rupa Coin Task 1**\n\n"
-            f"👉 নিচে দেওয়া **'🔗 Open Link'** বাটনে ক্লিক করে বিজ্ঞাপনটি ওপেন করুন এবং কমপক্ষে **{ad_time} সেকেন্ড** সেখানে অপেক্ষা করুন।\n\n"
-            f"⚠️ **শর্ত:** বিজ্ঞপ্তির লিংকে ক্লিক না করে সরাসরি রিওয়ার্ড বাটনে চাপ দিলে বা সময় শেষ হওয়ার আগে ব্যাক আসলে ১ পয়েন্টও পাবেন না!\n\n"
-            f"⏳ সময় শেষ হলে ফিরে এসে নিচের **'🎁 Claim Reward'** বাটনে চাপ দিন।", 
+            f"👇 নিচে দেওয়া ধাপগুলো সঠিকভাবে অনুসরণ করুন:\n\n"
+            f"১️⃣ প্রথমে **'🚀 ১. বিজ্ঞাপন লিংকটি আনুন'** বাটনে চাপ দিন।\n"
+            f"২️⃣ লিংক আসলে সেটিতে ক্লিক করে কমপক্ষে **{ad_time} সেকেন্ড** বিজ্ঞাপনটি দেখুন।\n"
+            f"৩️⃣ দেখা শেষ হলে বটের এই মেসেজে এসে **'🎁 ২. Claim Reward'** বাটনে চাপ দিন।\n\n"
+            f"⚠️ **সতর্কতা:** লিংকে চাপ না দিয়ে সরাসরি ক্লেইম করলে কোনো পয়েন্ট পাবেন না!", 
             reply_markup=markup
         )
 
@@ -188,44 +177,67 @@ def callback(call):
     u_id = str(call.from_user.id)
     user = data['users'][u_id]
 
-    # টাস্ক ১ এর ক্লেইম এবং ফাঁকিবাজি চেকার লজিক
-    if call.data == "claim_task1":
+    # ১. ইউজার যখন বিজ্ঞাপন লিংক আনার বাটনে চাপ দেবে
+    if call.data == "get_ad_link":
+        ad_url = data['tasks']['ads_link']
+        
+        # ঠিক এই মুহূর্তে তার ক্লিক করার টাইম ট্র্যাকার চালু হবে
+        user_click_timers[u_id] = time.time()
+        
+        # পপ-আপ অ্যালার্ট এবং চ্যাটে লিংকটি পাঠানো
+        bot.answer_callback_query(call.id, text="✅ আপনার বিজ্ঞপ্তির লিংক নিচে পাঠানো হয়েছে!", show_alert=False)
+        
+        link_markup = types.InlineKeyboardMarkup()
+        link_markup.add(types.InlineKeyboardButton(text="👁️ এই লিংকে ক্লিক করে বিজ্ঞাপন দেখুন", url=ad_url))
+        
+        bot.send_message(
+            call.message.chat.id,
+            f"🔗 **আপনার বিজ্ঞপ্তির লিংক রেডি!**\n\n"
+            f"👉 নিচের বাটনে ক্লিক করে বিজ্ঞাপনটি ওপেন করুন। পুরো সময় শেষ হওয়ার পর উপরের মেইন মেসেজের **'Claim Reward'** বাটনে চাপ দিয়ে কয়েন বুঝে নিন।",
+            reply_markup=link_markup
+        )
+
+    # ২. ইউজার যখন রিওয়ার্ড ক্লেইম করতে যাবে
+    elif call.data == "claim_task1":
         current_time = time.time()
         ad_time = data['tasks']['ads_time']
         reward = data['tasks']['ads_reward']
         
-        # ইউজার টাস্ক বাটনে ক্লিক করেছিল কিনা চেক
+        # ইউজার আদৌ ১ নম্বর বাটনে চাপ দিয়ে লিংক এনেছিল কি না চেক
         if u_id in user_click_timers:
             start_time = user_click_timers[u_id]
             elapsed_time = current_time - start_time  # কত সেকেন্ড পার হয়েছে তার হিসাব
             
-            # শর্ত: সেট করা সময় (যেমন ১৫ সেকেন্ড) পার হতে হবে
+            # শর্ত: লিংক আনার পর থেকে অবশ্যই নির্ধারিত সেকেন্ড পার হতে হবে
             if elapsed_time >= ad_time:
-                # ইউজারের ব্যালেন্সে রিওয়ার্ড কয়েন যোগ করা হচ্ছে
+                # ব্যালেন্সে কয়েন যোগ করা হচ্ছে
                 data['users'][u_id]['balance'] += reward
                 save_data(data)
                 
-                # স্ক্রিনে সাকসেস পপ-আপ মেসেজ
                 bot.answer_callback_query(call.id, text=f"✅ সফল হয়েছে! আপনি {reward} Rupa Coin বোনাস পেয়েছেন।", show_alert=True)
                 
-                # মেইন মেসেজটি এডিট করে অভিনন্দন জানানো হচ্ছে
                 bot.edit_message_text(
                     chat_id=call.message.chat.id, 
                     message_id=call.message.message_id, 
-                    text=f"🎉 **অভিনন্দন!**\n\nআপনি সফলভাবে পুরো সময় এড টি দেখেছেন। আপনার অ্যাকাউন্টে **{reward} Rupa Coin** যোগ করা হয়েছে! ✅"
+                    text=f"🎉 **অভিনন্দন!**\n\nআপনি সফলভাবে পুরো সময় অ্যাডটি দেখেছেন। আপনার অ্যাকাউন্টে **{reward} Rupa Coin** যোগ করা হয়েছে! ✅"
                 )
-                # কাজ শেষ, তাই ইউজারের টাইমার ডিলিট করা হলো
+                # কাজ শেষ, তাই ইউজারের টাইমার ডেটা ডিলিট
                 del user_click_timers[u_id]
             else:
-                # যদি ইউজার নির্ধারিত সময়ের আগে চলে আসে তবে এই অ্যালার্টটি আসবে এবং কোনো কয়েন অ্যাড হবে না
+                # সময় বাকি থাকলে তাকে আটকে দেবে
                 remaining_time = int(ad_time - elapsed_time)
                 bot.answer_callback_query(
                     call.id, 
-                    text=f"⚠️ আপনি ফাঁকিবাজি করছেন! বিজ্ঞাপনটি পুরোপুরি দেখা হয়নি। দয়া করে আরও {remaining_time} সেকেন্ড অপেক্ষা করুন।", 
+                    text=f"⚠️ আপনি ফাঁকিবাজি করছেন! বিজ্ঞাপন লিংক আনার পর এখনও {ad_time} সেকেন্ড পার হয়নি। দয়া করে আরও {remaining_time} সেকেন্ড অপেক্ষা করুন।", 
                     show_alert=True
                 )
         else:
-            bot.answer_callback_query(call.id, text="❌ আপনি তো এখনও বিজ্ঞাপনটি ওপেনই করেননি! প্রথমে '🔗 Open Link'-এ ক্লিক করুন।", show_alert=True)
+            # লিংক না এনে সরাসরি ক্লেইম চাপলে এই এরর দেবে
+            bot.answer_callback_query(
+                call.id, 
+                text="❌ আপনি তো এখনও বিজ্ঞপ্তির লিংকটিই আনেননি! প্রথমে '১. বিজ্ঞাপন লিংকটি আনুন' বাটনে চাপ দিন।", 
+                show_alert=True
+            )
 
     elif call.data == "set_bkash":
         msg = bot.send_message(call.message.chat.id, "আপনার বিকাশ নম্বরটি লিখুন:")

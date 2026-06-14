@@ -111,15 +111,25 @@ def callback(call):
     
     elif call.data == "do_withdraw":
         if user['balance'] >= 300:
-            bot.send_message(ADMIN_ID, f"🔔 উইথড্র রিকোয়েস্ট!\n👤 নাম: {user['name']}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}\n💰 ব্যালেন্স: {user['balance']}")
+            # এখানে আপনার চাওয়া বাংলা নোটিফিকেশন সিস্টেমটি সুন্দরভাবে যোগ করে দেওয়া হয়েছে
+            withdraw_msg = (
+                f"🚨 **নতুন উইথড্র রিকোয়েস্ট!**\n\n"
+                f"👤 ইউজার: {user['name']}\n"
+                f"🆔 আইডি: {u_id}\n"
+                f"📱 বিকাশ নম্বর: {user['bkash']}\n"
+                f"📱 নগদ নম্বর: {user['nagad']}\n"
+                f"💰 পরিমাণ: {user['balance']} Rupa Coin"
+            )
+            bot.send_message(ADMIN_ID, withdraw_msg, parse_mode="Markdown")
+            
+            # উইথড্র করার পর ইউজারের ব্যালেন্স ০ হয়ে যাবে
             user['balance'] = 0.0
             save_data(data)
             bot.answer_callback_query(call.id, "✅ উইথড্র রিকোয়েস্ট সফল!")
             bot.edit_message_text("✅ রিকোয়েস্ট অ্যাডমিনের কাছে পাঠানো হয়েছে।", call.message.chat.id, call.message.message_id)
         else:
-            bot.answer_callback_query(call.id, f"⚠️ ৩০০ পয়েন্ট প্রয়োজন! আপনার: {user['balance']}")
+            bot.answer_callback_query(call.id, f"⚠️ ৩০০ পয়েন্ট প্রয়োজন! আপনার আছে: {user['balance']}")
     
-    # পয়েন্ট যোগ হবে কিন্তু মেসেজ দেখাবে না
     elif call.data == "click_ads":
         data['users'][u_id]['balance'] += 0.2
         save_data(data)
@@ -138,3 +148,5 @@ def save_num(msg, key):
 if __name__ == "__main__":
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
     run_bot()
+
+            

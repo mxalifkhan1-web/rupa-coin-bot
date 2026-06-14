@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import time
-from flask import Flask, render_template_string
+from flask import Flask
 
 TOKEN = '8895342557:AAF08qNX-3yWm2vZyXp3K2fA7-Yrul6D1hw'
 ADMIN_ID = 7817231619
@@ -15,62 +15,60 @@ COMMUNITY_LINK = "https://t.me/rupacoin27bd"
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# বটের নিজস্ব সার্ভারে বিজ্ঞাপন দেখানোর জন্য HTML টেমপ্লেট (A-Ads এর জন্য ফিক্সড)
-AD_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rupa Coin Ad</title>
-    <style>
-        body { margin: 0; padding: 0; background-color: #17212b; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-        #frame { width: 100%; max-width: 400px; margin: auto; position: relative; }
-        iframe { border: 0; padding: 0; width: 100%; height: 500px; overflow: hidden; display: block; margin: auto; }
-    </style>
-</head>
-<body>
-    <div id="frame">
-        <iframe data-aa='2444040' src='https://acceptable.a-ads.com/2444040/?size=Adaptive'></iframe>
-    </div>
-</body>
-</html>
-"""
-
 # --- ডেটাবেস হ্যান্ডলার ---
 def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            pass
-    # আপনার দেওয়া A-Ads এর আসল লিংকটি ডিফল্ট হিসেবে সেট করা হলো
-    return {
-        'users': {}, 
-        'tasks': {
-            'ads_link': 'https://acceptable.a-ads.com/2444040/', 
-            'ads_reward': 0.2,
-            'ads_time': 15, 
-            'channel_username': '@rupacoin27bd', 
-            'channel_reward': 2.0 
+    # ফাইলটি যদি না থাকে, তবে স্বয়ংক্রিয়ভাবে নতুন ডিফল্ট ডেটা দিয়ে ফাইল তৈরি হবে
+    if not os.path.exists(DATA_FILE):
+        default_data = {
+            'users': {}, 
+            'tasks': {
+                'ads_link': 'https://acceptable.a-ads.com/2444040/?size=Adaptive', 
+                'ads_reward': 0.2,
+                'ads_time': 15, 
+                'channel_username': '@rupacoin27bd', 
+                'channel_reward': 2.0 
+            }
         }
-    }
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_data, f, indent=4, ensure_ascii=False)
+        return default_data
+        
+    # ফাইল থাকলে তা লোড করবে
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        # ফাইলে কোনো সমস্যা থাকলে ব্যাকআপ হিসেবে ডিফল্ট ডেটা রিটার্ন করবে
+        return {
+            'users': {}, 
+            'tasks': {
+                'ads_link': 'https://acceptable.a-ads.com/2444040/?size=Adaptive', 
+                'ads_reward': 0.2,
+                'ads_time': 15, 
+                'channel_username': '@rupacoin27bd', 
+                'channel_reward': 2.0 
+            }
+        }
 
 def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
+# প্রথমে ডেটা লোড বা অটো-তৈরি করা হচ্ছে
 data = load_data()
 
-# ডাটাবেস সেফটি চেক এবং মেইন লিংক আপডেট
-if 'ads_link' not in data['tasks'] or data['tasks']['ads_link'] == 'https://telega.in': 
-    data['tasks']['ads_link'] = 'https://acceptable.a-ads.com/2444040/'
+# ডাটাবেস সেফটি চেক এবং মেইন লিংক আপডেট (?size=Adaptive সহ ফিক্সড)
+if 'ads_link' not in data['tasks'] or 'size=Adaptive' not in data['tasks']['ads_link']: 
+    data['tasks']['ads_link'] = 'https://acceptable.a-ads.com/2444040/?size=Adaptive'
 if 'ads_reward' not in data['tasks']: data['tasks']['ads_reward'] = 0.2
 if 'ads_time' not in data['tasks']: data['tasks']['ads_time'] = 15
 if 'channel_username' not in data['tasks']: data['tasks']['channel_username'] = '@rupacoin27bd'
 if 'channel_reward' not in data['tasks']: data['tasks']['channel_reward'] = 2.0
 save_data(data)
+
+# --- 24/7 বটের জন্য ছোট সার্ভার ---
+@app.route('/')
+def home(): return "Bot is running 24/7!"
 
 # --- বট রানার ---
 def run_bot():
@@ -79,13 +77,6 @@ def run_bot():
             bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except:
             time.sleep(5)
-
-# Flask রুট - এটি টেলিগ্রামের ভেতরে বিজ্ঞাপনটি লোড করাবে
-@app.route('/')
-def home(): return "Bot is running 24/7!"
-
-@app.route('/view_ad')
-def view_ad(): return render_template_string(AD_HTML)
 
 # --- বট লজিক ---
 @bot.message_handler(commands=['start'])
@@ -108,6 +99,7 @@ def start(msg):
 
 @bot.message_handler(func=lambda msg: True)
 def reply(msg):
+    global data
     u_id = str(msg.from_user.id)
     
     # --- অ্যাডমিন কমান্ডস ---
@@ -136,21 +128,24 @@ def reply(msg):
         markup.add(types.InlineKeyboardButton("💸 উইথড্র করুন", callback_data="do_withdraw"))
         bot.send_message(msg.chat.id, f"💰 ব্যালেন্স: {user['balance']} Rupa Coin\n\nপেমেন্ট মেথড সেট করুন বা উইথড্র করুন:", reply_markup=markup)
     
-    # অরিজিনাল লাইভ কাউন্টডাউন টাইমার সিস্টেম (টেলিগ্রামের ভেতরেই অ্যাড দেখাবে)
+    # 📋 টাস্ক অ্যাড সেকশন (টেলিগ্রামের ভেতরে ফুল স্ক্রিন বিজ্ঞাপন দেখাবে)
     elif txt == '📋 Task (Ads)':
         ad_time = data['tasks']['ads_time']
         reward = data['tasks']['ads_reward']
-        
-        # আপনার হোস্টিংয়ের লোকাল লিংক ওয়েবভিউতে ওপেন হবে যেন 'Forbidden' না আসে
-        # ⚠️ আপনার হোস্টিং এর আসল ডোমেইন লিংকটি "alif357-bot.onrender.com" এর জায়গায় বসিয়ে দিতে পারেন।
-        web_url = f"https://alif357-bot.onrender.com/view_ad" 
+        web_url = data['tasks']['ads_link']
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("👁️ এড টি দেখুন", web_app=types.WebAppInfo(url=web_url)))
         
-        sent_msg = bot.send_message(msg.chat.id, f"📋 **টাস্ক অ্যাড!**\n\n👉 **এড টি দেখুন**\n\n⚠️ নিচের বাটনে চাপ দিয়ে অ্যাডটি ওপেন করুন এবং টেলিগ্রামের ভেতরেই অপেক্ষা করুন।\n\n⏳ **সময় বাকি: {ad_time} সেকেন্ড**", reply_markup=markup)
+        sent_msg = bot.send_message(
+            msg.chat.id, 
+            f"📋 **টাস্ক অ্যাড!**\n\n"
+            f"👉 নিচে **'👁️ এড টি দেখুন'** বাটনে চাপ দিয়ে বিজ্ঞাপনটি বটের ভেতরেই ওপেন করুন এবং কমপক্ষে **{ad_time} সেকেন্ড** অপেক্ষা করুন।\n\n"
+            f"⏳ **সময় বাকি: {ad_time} সেকেন্ড**", 
+            reply_markup=markup
+        )
         
-        # ব্যাকগ্রাউন্ডে টাইমার থ্রেড চালু হচ্ছে যা লাইভ সেকেন্ড কমাবে
+        # ব্যাকগ্রাউন্ডে টাইমার চালু হওয়া যা চ্যাটে লাইভ সেকেন্ড কমাবে
         threading.Thread(target=countdown_timer, args=(msg.chat.id, sent_msg.message_id, ad_time, reward, u_id, web_url)).start()
 
     elif txt == '⚡ Pro Task':
@@ -175,7 +170,7 @@ def reply(msg):
     elif txt == '👥 Community':
         bot.send_message(msg.chat.id, f"জয়েন করুন: {COMMUNITY_LINK}")
 
-# লাইভ টাইমার কাউন্টডাউন ফাংশন (মেসেজ এডিট করে প্রতি সেকেন্ড কমাবে)
+# লাইভ টাইমার কাউন্টডাউন ফাংশন
 def countdown_timer(chat_id, message_id, remaining_time, reward, u_id, web_url):
     while remaining_time > 0:
         time.sleep(1)
@@ -193,7 +188,6 @@ def countdown_timer(chat_id, message_id, remaining_time, reward, u_id, web_url):
         except:
             return
             
-    # সময় শেষ হলে অটোমেটিক কয়েন যোগ হবে এবং সাকসেস মেসেজ আসবে
     try:
         global data
         data['users'][u_id]['balance'] += reward
@@ -260,5 +254,6 @@ def save_num(msg, key):
         bot.reply_to(msg, f"✅ আপনার {key} নম্বর সেভ হয়েছে!")
 
 if __name__ == "__main__":
+    # Flask সার্ভার ব্যাকগ্রাউন্ড থ্রেডে রান হবে
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000)).start()
     run_bot()

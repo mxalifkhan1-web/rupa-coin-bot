@@ -14,11 +14,10 @@ ADMIN_ID = 7817231619
 BOT_USERNAME = 'alif357_bot'
 DB_FILE = "user_database.db"  
 COMMUNITY_LINK = "https://t.me/rupacoin27bd"
-
-# আপনার রেন্ডার অ্যাপের লাইভ ইউআরএল (যেমন: https://rupa-coin.onrender.com)
 RENDER_APP_URL = "https://your-app-name.onrender.com" 
 
-bot = telebot.TeleBot(TOKEN, num_threads=100) # মাল্টি-থ্রেডিং ক্ষমতা ১০০ এ উন্নীত করা হয়েছে
+# বোকা বানানোর মতো অতিরিক্ত থ্রেড (১০০) না দিয়ে স্ট্যান্ডার্ড ২০টি থ্রেড দেওয়া হলো যা কোটি ইউজারের জন্য যথেষ্ট
+bot = telebot.TeleBot(TOKEN, threaded=True, num_threads=20) 
 app = Flask(__name__)
 db_lock = threading.Lock()
 
@@ -28,10 +27,11 @@ user_pro_clicks = {}
 active_withdrawals = set()
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_FILE, timeout=60.0, isolation_level=None) 
+    # isolation_level সরিয়ে দেওয়া হয়েছে যাতে SQLite নিজে ট্রানজেকশন হ্যান্ডেল করতে পারে
+    conn = sqlite3.connect(DB_FILE, timeout=30.0) 
     conn.execute('PRAGMA journal_mode=WAL;')       
     conn.execute('PRAGMA synchronous=NORMAL;')    
-    conn.execute('PRAGMA cache_size=-128000;') # কোটি ইউজারের হাই ট্রাফিকের জন্য ক্যাশ মেমোরি দ্বিগুণ করা হয়েছে
+    conn.execute('PRAGMA cache_size=-128000;') 
     return conn
 
 def init_db():
@@ -39,7 +39,6 @@ def init_db():
         try:
             with get_db_connection() as conn:
                 cursor = conn.cursor()
-                # ডাটাবেজ ফাইলের সাইজ অটো অপ্টিমাইজ রাখার জন্য ভ্যাকুয়াম অন
                 cursor.execute('PRAGMA auto_vacuum = FULL;')
                 
                 cursor.execute('''
@@ -62,8 +61,6 @@ def init_db():
                         pro_reward REAL
                     )
                 ''')
-                
-                # হাই-স্পিড সার্চিং নিশ্চিত করতে ডাটাবেজ ইনডেক্সিং (কোটি ইউজারের জন্য অতি জরুরি)
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_uid ON users(u_id);')
                 
                 cursor.execute("SELECT COUNT(*) FROM tasks")
@@ -72,8 +69,9 @@ def init_db():
                         INSERT INTO tasks (id, ads_link, ads_reward, ads_time, pro_link, pro_reward)
                         VALUES (1, 'https://acceptable.a-ads.com/2444040/?size=Adaptive', 0.2, 15, 'https://t.me/rupacoin27bd', 1.0)
                     ''')
+                conn.commit()
         except Exception as e:
-            print(f"Database Init Error: {e}")
+            print(f"❌ Database Init Error: {e}")
 
 init_db()
 
@@ -86,7 +84,8 @@ def get_tasks_config():
                 row = cursor.fetchone()
                 if row:
                     return {'ads_link': row[0], 'ads_reward': row[1], 'ads_time': row[2], 'pro_link': row[3], 'pro_reward': row[4]}
-    except Exception: pass
+    except Exception as e: 
+        print(f"Error fetching tasks: {e}")
     return {'ads_link': 'https://acceptable.a-ads.com/2444040/?size=Adaptive', 'ads_reward': 0.2, 'ads_time': 15, 'pro_link': 'https://t.me/rupacoin27bd', 'pro_reward': 1.0}
 
 def get_user(u_id):
@@ -98,7 +97,8 @@ def get_user(u_id):
                 row = cursor.fetchone()
                 if row:
                     return {'name': row[0], 'balance': row[1], 'bkash': row[2], 'nagad': row[3], 'completed_pro_links': [x for x in row[4].split(',') if x] if row[4] else []}
-    except Exception: pass
+    except Exception as e: 
+        print(f"Error getting user: {e}")
     return None
 
 def add_user(u_id, name):
@@ -109,9 +109,11 @@ def add_user(u_id, name):
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR IGNORE INTO users (u_id, name) VALUES (?, ?)", (str(u_id), name))
-        except Exception: pass
+                conn.commit()
+        except Exception as e: 
+            print(f"Error adding user: {e}")
 
-# --- ফ্ল্যাঙ্ক গেটওয়ে রিডাইরেকশন এবং ক্লিক ট্র্যাকিং ইঞ্জিন ---
+# --- ফ্লাস্ক গেটওয়ে ---
 @app.route('/')
 def home(): 
     return "Rupa Coin Server: 100% Active & Pro Scaled"
@@ -141,7 +143,8 @@ def start(msg):
         m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
         m.add('👤 প্রোফাইল', '📋 সাধারণ টাস্ক', '⚡ প্রো টাস্ক', '💰 ওয়ালেট', '👥 রেফারেল', '👥 কমিউনিটি')
         bot.send_message(msg.chat.id, f"✨ স্বাগতম {msg.from_user.first_name}!", reply_markup=m)
-    except Exception: pass
+    except Exception as e: 
+        print(f"Start command error: {e}")
 
 @bot.message_handler(func=lambda msg: True)
 def reply(msg):
@@ -161,7 +164,8 @@ def reply(msg):
                             with get_db_connection() as conn:
                                 cursor = conn.cursor()
                                 cursor.execute("UPDATE tasks SET ads_link=?, ads_time=?, ads_reward=? WHERE id=1", (parts[1], int(parts[2]), float(parts[3])))
-                        except Exception: pass
+                                conn.commit()
+                        except Exception as e: print(e)
                     bot.reply_to(msg, f"✅ সাধারণ টাস্ক আপডেট সফল!")
                 return
             elif txt.startswith('/setpro'):
@@ -172,14 +176,14 @@ def reply(msg):
                             with get_db_connection() as conn:
                                 cursor = conn.cursor()
                                 cursor.execute("UPDATE tasks SET pro_link=?, pro_reward=? WHERE id=1", (parts[1], float(parts[2])))
-                        except Exception: pass
+                                conn.commit()
+                        except Exception as e: print(e)
                     bot.reply_to(msg, f"🚀 নতুন প্রো টাস্ক লিংক সেট হয়েছে!")
                 return
             elif txt == '/backup':
-                # ডাটাবেজ সিকিউরিটি ব্যাকআপ মেকানিজম
                 if os.path.exists(DB_FILE):
                     with open(DB_FILE, 'rb') as doc:
-                        bot.send_document(ADMIN_ID, doc, caption="📦 Rupa Coin ওয়ান-ক্লিক ডাটাবেজ ব্যাকআপ সফল!")
+                        bot.send_document(ADMIN_ID, doc, caption="📦 Rupa Coin ডাটাবেজ ব্যাকআপ সফল!")
                 else:
                     bot.reply_to(msg, "❌ ডাটাবেজ ফাইল পাওয়া যায়নি।")
                 return
@@ -210,7 +214,7 @@ def reply(msg):
             bot.send_message(
                 msg.chat.id, 
                 f"📋 **Rupa Coin সাধারণ টাস্ক**\n\n"
-                f"১️⃣ প্রথমে নিচের ১ নম্বর লিংকে ক্লিক করে বিজ্ঞাপনে প্রবেশ করুন। (টিপ দিলেই আপনার ১৫ সেকেন্ড কাউন্ট শুরু হবে)।\n"
+                f"১️⃣ প্রথমে নিচের ১ নম্বর লিংকে ক্লিক করে বিজ্ঞাপনে প্রবেশ করুন।\n"
                 f"২️⃣ ঠিক **{config['ads_time']} সেকেন্ড** বিজ্ঞাপন দেখে এসে ২ নম্বর **'Claim Reward'** বাটনে চাপ দিন।", 
                 reply_markup=markup
             )
@@ -220,7 +224,7 @@ def reply(msg):
             current_link_hash = hashlib.md5(pro_url.encode()).hexdigest()
             
             if current_link_hash in user['completed_pro_links']:
-                bot.send_message(msg.chat.id, "❌ **আপনার জন্য এখনো নতুন কোন Task আসে نی!**")
+                bot.send_message(msg.chat.id, "❌ **আপনার জন্য এখনো নতুন কোন Task আসে নি!**")
                 return
                 
             pro_tracking_url = f"{RENDER_APP_URL}/click/pro/{u_id}"
@@ -239,7 +243,8 @@ def reply(msg):
             bot.send_message(msg.chat.id, f"আপনার রেফারেল লিংক:\nhttps://t.me/{BOT_USERNAME}?start={u_id}")
         elif txt == '👥 কমিউনিটি':
             bot.send_message(msg.chat.id, f"জয়েন করুন: {COMMUNITY_LINK}")
-    except Exception: pass
+    except Exception as e: 
+        print(f"Reply message error: {e}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
@@ -249,7 +254,6 @@ def callback(call):
         config = get_tasks_config()
         if not user: return
 
-        # ================= সাধারণ টাস্ক ভেরিফিকেশন =================
         if call.data == "final_claim_task":
             current_time = time.time()
             ad_time = config['ads_time']
@@ -261,7 +265,7 @@ def callback(call):
                 
                 if elapsed_time < ad_time:
                     user_click_timers.pop(u_id, None)
-                    bot.answer_callback_query(call.id, text=f"🚨 ধোঁকাবাজি সনাক্ত হয়েছে! আপনি সম্পূর্ণ ১৫ সেকেন্ড অপেক্ষা করেননি। টাস্ক বাতিল, আবার শুরু করুন!", show_alert=True)
+                    bot.answer_callback_query(call.id, text=f"🚨 ধোঁকাবাজি সনাক্ত হয়েছে! সম্পূর্ণ সময় অপেক্ষা করেননি।", show_alert=True)
                 else:
                     user_click_timers.pop(u_id, None)
                     new_balance = user['balance'] + reward
@@ -270,13 +274,13 @@ def callback(call):
                             with get_db_connection() as conn:
                                 cursor = conn.cursor()
                                 cursor.execute("UPDATE users SET balance=? WHERE u_id=?", (new_balance, u_id))
-                        except Exception: pass
+                                conn.commit()
+                        except Exception as e: print(e)
                     bot.answer_callback_query(call.id, text=f"🎉 সফল হয়েছে! {reward} Coin যোগ করা হয়েছে।", show_alert=True)
                     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"✅ **টাস্ক সফলভাবে সম্পন্ন!**")
             else:
-                bot.answer_callback_query(call.id, text="❌ জاليةতি! আপনি ১ নম্বর বাটনে ক্লিক করে বিজ্ঞাপনে প্রবেশ করেননি।", show_alert=True)
+                bot.answer_callback_query(call.id, text="❌ জালিয়াতি! আপনি ১ নম্বর বাটনে ক্লিক করে বিজ্ঞাপনে প্রবেশ করেননি।", show_alert=True)
 
-        # ================= প্রো টাস্ক ভেরিফিকেশন =================
         elif call.data == "claim_pro_task":
             pro_url = config['pro_link']
             pro_reward = config['pro_reward']
@@ -297,14 +301,14 @@ def callback(call):
                         with get_db_connection() as conn:
                             cursor = conn.cursor()
                             cursor.execute("UPDATE users SET balance=?, completed_pro_links=? WHERE u_id=?", (new_balance, new_pro_links_str, u_id))
-                    except Exception: pass
+                            conn.commit()
+                    except Exception as e: print(e)
                 
                 bot.answer_callback_query(call.id, text=f"🎉 অভিনন্দন! {pro_reward} Rupa Coin যোগ হয়েছে।", show_alert=True)
                 bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"✅ **PRO টাস্ক সফলভাবে সম্পন্ন!**")
             else:
                 bot.answer_callback_query(call.id, text="❌ জاليةতি! আপনি ১ নম্বর প্রো টাস্ক লিংকে ক্লিক করেননি।", show_alert=True)
 
-        # ================= উইথড্র ও অ্যাকাউন্ট সিস্টেম =================
         elif call.data == "set_bkash":
             msg = bot.send_message(call.message.chat.id, "আপনার বিকাশ নম্বরটি লিখুন:")
             bot.register_next_step_handler(msg, lambda m: save_num(m, 'bkash'))
@@ -324,7 +328,8 @@ def callback(call):
                         with get_db_connection() as conn:
                             cursor = conn.cursor()
                             cursor.execute("UPDATE users SET balance=0.0 WHERE u_id=?", (u_id,))
-                    except Exception: pass
+                            conn.commit()
+                    except Exception as e: print(e)
 
                 try: bot.send_message(ADMIN_ID, withdraw_msg, parse_mode="Markdown")
                 except Exception: bot.send_message(ADMIN_ID, withdraw_msg.replace('*', ''))
@@ -334,7 +339,8 @@ def callback(call):
                 bot.edit_message_text("✅ আপনার রিকোয়েস্টটি অ্যাডমিনের কাছে পাঠানো হয়েছে।", call.message.chat.id, call.message.message_id)
             else:
                 bot.answer_callback_query(call.id, f"⚠️ সর্বনিম্ন ৩০০ কয়েন প্রয়োজন!", show_alert=True)
-    except Exception: pass
+    except Exception as e: 
+        print(f"Callback error: {e}")
 
 def save_num(msg, key):
     try:
@@ -346,14 +352,18 @@ def save_num(msg, key):
                 with get_db_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute(f"UPDATE users SET {key}=? WHERE u_id=?", (clean_text, u_id))
-            except Exception: pass
+                    conn.commit()
+            except Exception as e: print(e)
         bot.reply_to(msg, f"✅ আপনার {key} নম্বর সফলভাবে সেভ হয়েছে!")
-    except Exception: pass
+    except Exception as e: 
+        print(f"Save number error: {e}")
 
+# --- রান করার সঠিক নিয়ম ---
 if __name__ == "__main__":
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000, use_reloader=False, threaded=True)).start()
-    while True:
-        try: 
-            bot.infinity_polling(timeout=120, long_polling_timeout=120, restart_on_status_update=True, skip_pending=True)
-        except Exception: 
-            time.sleep(5)
+    # ফ্লাস্ক অ্যাপ ব্যাকগ্রাউন্ড থ্রেডে চলবে
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000, use_reloader=False, threaded=True), daemon=True).start()
+    
+    print("🤖 Bot is starting pooling...")
+    # কোনো লুপ ছাড়া স্ট্যান্ডার্ড ইনফিনিটি পোলিং, যা ক্র্যাশ করলে নিজে রিস্টার্ট হবে
+    bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=30)
+

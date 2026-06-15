@@ -207,7 +207,7 @@ def reply(msg):
         elif txt == '💰 ওয়ালেট':
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("📱 বিকাশ সেট", callback_data="set_bkash"),
-                       types.InlineKeyboardButton("📱 নগদ সেট", callback_data="set_nagad"))
+                       types.InlineKeyboardButton("📱 নগদ ", callback_data="set_nagad"))
             markup.add(types.InlineKeyboardButton("💸 উইথড্র করুন", callback_data="do_withdraw"))
             bot.send_message(msg.chat.id, f"💰 ব্যালেন্স: {user['balance']} Rupa Coin\n\nপেমেন্ট মেথড সেট করুন বা উইথড্র করুন:", reply_markup=markup)
         

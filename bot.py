@@ -3,6 +3,7 @@ from telebot import types
 import sqlite3
 import time
 import threading
+import re
 from flask import Flask
 
 # --- কনফিগারেশন ---
@@ -16,57 +17,61 @@ COMMUNITY_LINK = "https://t.me/rupacoin27bd"
 bot = telebot.TeleBot(TOKEN, num_threads=60)
 app = Flask(__name__)
 
-# ডাটাবেজ রিড/রাইট জ্যাম প্রতিরোধের লক
+# ডাটাবেজ এবং ট্রানজেকশনের ডেডলক প্রতিরোধের জন্য গ্লোবাল লক
 db_lock = threading.Lock()
 
-# ইন-মেমোরি আল্ট্রা-ফাস্ট ট্র্যাকিং
+# ইন-মেমোরি আল্ট্রা-ফাস্ট ট্র্যাকিং ও স্প্যাম প্রটেকশন সেশন
 user_click_timers = {} 
 user_pro_clicks = {}
+active_withdrawals = set()  # উইথড্র স্প্যামিং লক করার জন্য বিশেষ সেট
 
-# --- অত্যন্ত সুরক্ষিত ডাটাবেজ কানেকশন স্কিম ---
+# --- অত্যন্ত সুরক্ষিত ডাটাবেজ কানেকশন স্কিম (হাই-ট্রাফিক অপ্টিমাইজড) ---
 def get_db_connection():
-    """হাই-ট্রাফিকের জন্য আল্ট্রা-ফাস্ট এবং লক-ফ্রি কানেকশন তৈরি করে"""
-    conn = sqlite3.connect(DB_FILE, timeout=45.0, isolation_level=None) 
+    """রেন্ডার সার্ভারের জন্য আল্ট্রা-ফাস্ট এবং লক-ফ্রি WAL মোড কানেকশন তৈরি করে"""
+    conn = sqlite3.connect(DB_FILE, timeout=60.0, isolation_level=None) 
     conn.execute('PRAGMA journal_mode=WAL;')       
     conn.execute('PRAGMA synchronous=NORMAL;')    
-    conn.execute('PRAGMA cache_size=-64000;')  # ৬৪ মেগাবাইট ক্যাশ মেমোরি অপ্টিমাইজেশন
+    conn.execute('PRAGMA cache_size=-64000;')  # ৬৪ মেগাবাইট ক্যাশ মেমোরি বুস্টার
     return conn
 
 # --- ডাটাবেজ ইনিশিয়ালাইজেশন ---
 def init_db():
     with db_lock:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                u_id TEXT PRIMARY KEY,
-                name TEXT,
-                balance REAL DEFAULT 0.0,
-                bkash TEXT DEFAULT 'Not Set',
-                nagad TEXT DEFAULT 'Not Set',
-                completed_pro_links TEXT DEFAULT ''
-            )
-        ''')
-        
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY,
-                ads_link TEXT,
-                ads_reward REAL,
-                ads_time INTEGER,
-                pro_link TEXT,
-                pro_reward REAL
-            )
-        ''')
-        
-        cursor.execute("SELECT COUNT(*) FROM tasks")
-        if cursor.fetchone()[0] == 0:
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
             cursor.execute('''
-                INSERT INTO tasks (id, ads_link, ads_reward, ads_time, pro_link, pro_reward)
-                VALUES (1, 'https://acceptable.a-ads.com/2444040/?size=Adaptive', 0.2, 15, 'https://t.me/rupacoin27bd', 1.0)
+                CREATE TABLE IF NOT EXISTS users (
+                    u_id TEXT PRIMARY KEY,
+                    name TEXT,
+                    balance REAL DEFAULT 0.0,
+                    bkash TEXT DEFAULT 'Not Set',
+                    nagad TEXT DEFAULT 'Not Set',
+                    completed_pro_links TEXT DEFAULT ''
+                )
             ''')
-        conn.close()
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY,
+                    ads_link TEXT,
+                    ads_reward REAL,
+                    ads_time INTEGER,
+                    pro_link TEXT,
+                    pro_reward REAL
+                )
+            ''')
+            
+            cursor.execute("SELECT COUNT(*) FROM tasks")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute('''
+                    INSERT INTO tasks (id, ads_link, ads_reward, ads_time, pro_link, pro_reward)
+                    VALUES (1, 'https://acceptable.a-ads.com/2444040/?size=Adaptive', 0.2, 15, 'https://t.me/rupacoin27bd', 1.0)
+                ''')
+            conn.close()
+        except Exception as e:
+            print(f"Database Init Error: {e}")
 
 init_db()
 
@@ -104,13 +109,14 @@ def get_user(u_id):
                     'completed_pro_links': [x for x in row[4].split(',') if x] if row[4] else []
                 }
     except Exception as e:
-        print(f"Error fetching user: {e}")
+        print(f"Error fetching user {u_id}: {e}")
     return None
 
 def add_user(u_id, name):
     if not name:
         name = "User"
-    name = name.replace("<", "").replace(">", "").replace("&", "") # XSS ও HTML ইনজেকশন ক্লিনিং
+    # XSS, HTML ও ডাটাবেজ ইনজেকশন সম্পূর্ণ ক্লিন করার ফিল্টার
+    name = re.sub(r'[<>&\'"\*\_]', '', name)
     with db_lock:
         try:
             conn = get_db_connection()
@@ -118,26 +124,26 @@ def add_user(u_id, name):
             cursor.execute("INSERT OR IGNORE INTO users (u_id, name) VALUES (?, ?)", (str(u_id), name))
             conn.close()
         except Exception as e:
-            print(f"Error adding user: {e}")
+            print(f"Error adding user {u_id}: {e}")
 
-# --- স্মার্ট মেমোরি গার্বেজ কালেক্টর (র‍্যাম ও ক্যাশ প্রটেকশন) ---
+# --- স্মার্ট মেমোরি গার্বেজ কালেক্টর (র‍্যাম প্রটেকশন লেয়ার) ---
 def cache_cleaner():
     while True:
         try:
-            time.sleep(600) # প্রতি ১০ মিনিট পর পর অটো-ক্লিন রান হবে
+            time.sleep(180) # প্রতি ৩ মিনিট পর পর অটো-ক্লিন রান হবে ও র‍্যাম ফ্রি করবে
             now = time.time()
             for uid, data in list(user_click_timers.items()):
-                if now - data["start_time"] > 1200: # ২০ মিনিটের বেশি আগের ডেড সেশন রিমুভ
+                if data["start_time"] > 0 and now - data["start_time"] > 600: 
                     user_click_timers.pop(uid, None)
             for uid, url in list(user_pro_clicks.items()):
-                if uid in user_click_timers and now - user_click_timers[uid]["start_time"] > 2400: 
+                if uid not in user_click_timers and now % 3600 == 0:
                     user_pro_clicks.pop(uid, None)
         except Exception as e:
             print(f"Error in cache cleaner: {e}")
 
 threading.Thread(target=cache_cleaner, daemon=True).start()
 
-# --- লাইভ আপটাইম মনিটরিং ফ্লাস্ক গেটওয়ে ---
+# --- লাইভ আপটাইম মনিটরিং ফ্লাস্ক গেটওয়ে ---
 @app.route('/')
 def home(): 
     return "Bot Core Architecture Status: 100% Operational & Safe!"
@@ -145,7 +151,6 @@ def home():
 def run_bot():
     while True:
         try:
-            # ম্যাক্সিমাম নেটওয়ার্ক ফল্ট রেজিস্ট্যান্স এনভায়রনমেন্ট
             bot.infinity_polling(timeout=120, long_polling_timeout=120)
         except Exception as e:
             print(f"Bot Polling Exception: {e}. Reconnecting Core in 5 seconds...")
@@ -213,18 +218,21 @@ def reply(msg):
         
         elif txt == '📋 সাধারণ টাস্ক':
             ad_time = config['ads_time']
+            user_click_timers[u_id] = {"start_time": 0, "status": "pending"}
+            
             markup = types.InlineKeyboardMarkup(row_width=1)
-            button_open = types.InlineKeyboardButton(text="🚀 ১. বিজ্ঞাপন লিংকটি আনুন", callback_data="get_ad_link")
-            button_claim = types.InlineKeyboardButton(text="🎁 ২. Claim Reward / ভেরিফাই", callback_data="claim_task1")
-            markup.add(button_open, button_claim)
+            button_url = types.InlineKeyboardButton(text="🔗 ১. এখানে ক্লিক করে বিজ্ঞাপনটি দেখুন", url=config['ads_link'])
+            button_start = types.InlineKeyboardButton(text="⏱️ ২. বিজ্ঞাপনে ঢুকে এখানে চাপ দিন (টাইমার চালু)", callback_data="start_timer_clock")
+            button_claim = types.InlineKeyboardButton(text="🎁 ৩. Claim Reward / ভেরিফাই", callback_data="final_claim_task")
+            markup.add(button_url, button_start, button_claim)
             
             bot.send_message(
                 msg.chat.id, 
-                f"📋 **Rupa Coin টাস্ক ১**\n\n"
-                f"১️⃣ প্রথমে নিচের **'🚀 ১. বিজ্ঞাপন লিংকটি আনুন'** বাটনে চাপ দিন।\n"
-                f"২️⃣ লিংক আসলে অবশ্যই সেখানে ক্লিক করে কমপক্ষে **{ad_time} সেকেন্ড** বিজ্ঞাপনটি সম্পূর্ণ দেখুন।\n"
-                f"⚠️ **সতর্কতা:** লিংকে ক্লিক না করে সরাসরি ক্লেইম করলে কোনো পয়েন্ট পাবেন না!\n"
-                f"৩️⃣ দেখা শেষ হলে বটের এই মেসেজে এসে **'🎁 ২. Claim Reward'** বাটনে চাপ দিন।", 
+                f"📋 **Rupa Coin টাস্ক গেটওয়ে**\n\n"
+                f"১️⃣ প্রথমে **'🔗 ১. এখানে ক্লিক করে বিজ্ঞাপনটি দেখুন'** বাটনে চাপ দিয়ে বিজ্ঞাপনে যান।\n"
+                f"২️⃣ বিজ্ঞাপনে প্রবেশ করার সাথে সাথে দ্রুত বটের এই মেসেজে ব্যাক এসে **'⏱️ ২. বিজ্ঞাপনে ঢুকে এখানে চাপ দিন'** বাটনে চাপুন। এতে বটের আসল টাইমার সচল হবে।\n"
+                f"৩️⃣ ঠিক **{ad_time} সেকেন্ড** পর **'🎁 ৩. Claim Reward'** বাটনে চাপ দিয়ে পয়েন্ট ridicu করুন।\n\n"
+                f"⚠️ **সতর্কতা:** সময় শেষ হওয়ার আগে ক্লেইম করার চেষ্টা করলে পুরো টাস্ক বাতিল হবে এবং পুনরায় প্রথম থেকে শুরু করতে হবে!", 
                 reply_markup=markup
             )
 
@@ -233,7 +241,7 @@ def reply(msg):
             pro_reward = config['pro_reward']
             
             if pro_url in user['completed_pro_links']:
-                bot.send_message(msg.chat.id, "❌ **আপনার জন্য এই মুহূর্তে কোনো টাস্ক নেই!**\n\nআপনি ইতিমধ্যে এই প্রো টাস্কটি সম্পূর্ণ করে ফেলেছেন। অ্যাডমিন নতুন লিংক সেট না করা পর্যন্ত দয়া করে অপেক্ষা করুন।")
+                bot.send_message(msg.chat.id, "❌ **আপনার জন্য এই মুহূর্তে কোনো টাস্ক নেই!**")
                 return
                 
             markup = types.InlineKeyboardMarkup(row_width=1)
@@ -243,13 +251,7 @@ def reply(msg):
             
             bot.send_message(
                 msg.chat.id, 
-                f"⚡ **Premium Pro Task** ⚡\n\n"
-                f"💰 এই টাস্কটি সম্পূর্ণ করলে পাবেন: **{pro_reward} Rupa Coin**\n\n"
-                f"👇 **নিয়মাবলী:**\n"
-                f"১️⃣ প্রথমে নিচের **'🚀 ১. প্রো টাস্ক লিংকটি আনুন'** বাটনে ক্লিক করুন।\n"
-                f"২️⃣ লিংকটি ওপেন করে ঘুরে আসুন (এখানে কোনো টাইম লিমিট নেই)।\n"
-                f"৩️⃣ লিংকে ঢোকার পর ব্যাক এসে **'🎁 ২. Claim Pro Reward'** বাটনে চাপ দিন।\n\n"
-                f"⚠️ **শর্ত:** লিংকে ক্লিক না করে সরাসরি রিওয়ার্ড ক্লেইম করলে পয়েন্ট অ্যাড হবে না!",
+                f"⚡ **Premium Pro Task** ⚡\n\n💰 রিওয়ার্ড: **{pro_reward} Rupa Coin**",
                 reply_markup=markup
             )
 
@@ -262,7 +264,7 @@ def reply(msg):
         print(f"Message reply handler exception: {e}")
 
 
-# --- সিকিউরড কলব্যাক কুয়েরি ইন্টেলিজেন্স ---
+# --- সিকিউরড কলব্যাক কুয়েরি ইন্টেলিজেন্স (উইথড্র ও অ্যান্টি-ফ্রড বুস্টেড) ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
     try:
@@ -273,8 +275,41 @@ def callback(call):
             bot.answer_callback_query(call.id, text="❌ সেশন আউট! অনুগ্রহ করে বটটি রিস্টার্ট করুন (/start)", show_alert=True)
             return
 
+        # ================= সাধারণ বিজ্ঞাপন টাস্ক প্রটেকশন ব্লক =================
+        if call.data == "start_timer_clock":
+            if u_id in user_click_timers and user_click_timers[u_id]["status"] == "pending":
+                user_click_timers[u_id] = {"start_time": time.time(), "status": "counting"}
+                bot.answer_callback_query(call.id, text=f"🚀 টাইমার সচল হয়েছে! ঠিক {config['ads_time']} সেকেন্ড বিজ্ঞাপনে অপেক্ষা করুন।", show_alert=True)
+            else:
+                bot.answer_callback_query(call.id, text="❌ সেশন ওভার! অনুগ্রহ করে '📋 সাধারণ টাস্ক' বাটনে আবার চাপ দিন।", show_alert=True)
+
+        elif call.data == "final_claim_task":
+            current_time = time.time()
+            ad_time = config['ads_time']
+            reward = config['ads_reward']
+            
+            if u_id in user_click_timers and user_click_timers[u_id]["status"] == "counting":
+                start_time = user_click_timers[u_id]["start_time"]
+                elapsed_time = current_time - start_time
+                
+                if elapsed_time < ad_time:
+                    user_click_timers.pop(u_id, None)
+                    bot.answer_callback_query(call.id, text=f"🚨 ধোঁকাবাজি সনাক্ত হয়েছে! আপনি সম্পূর্ণ সময় অপেক্ষা করেননি। আপনার চলতি টাস্কটি বাতিল করা হলো! আবার শুরু করুন।", show_alert=True)
+                else:
+                    user_click_timers.pop(u_id, None)
+                    new_balance = user['balance'] + reward
+                    with db_lock:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("UPDATE users SET balance=? WHERE u_id=?", (new_balance, u_id))
+                        conn.close()
+                    bot.answer_callback_query(call.id, text=f"🎉 অভিনন্দন! আপনি {reward} Rupa Coin বোনাস পেয়েছেন।", show_alert=True)
+                    bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"✅ **টাস্ক সফলভাবে সম্পূর্ণ!**\n\nআপনার অ্যাকাউন্টে **{reward} Rupa Coin** যোগ করা হয়েছে।")
+            else:
+                bot.answer_callback_query(call.id, text="❌ কোনো একটিভ টাইমার পাওয়া যায়নি! প্রথমে ২ নম্বর বাটন চেপে টাইমার চালু করুন।", show_alert=True)
+
         # ================= প্রো টাস্ক ব্লক =================
-        if call.data == "get_pro_link":
+        elif call.data == "get_pro_link":
             pro_url = config['pro_link']
             if pro_url in user['completed_pro_links']:
                 bot.answer_callback_query(call.id, text="⚠️ আপনি ইতিমধ্যে এই টাস্কটি শেষ করেছেন!", show_alert=True)
@@ -285,13 +320,7 @@ def callback(call):
             
             pro_markup = types.InlineKeyboardMarkup()
             pro_markup.add(types.InlineKeyboardButton(text="🔗 লিংকে প্রবেশ করতে এখানে চাপ দিন", url=pro_url))
-            
-            bot.send_message(
-                call.message.chat.id,
-                f"🔥 **আপনার প্রো টাস্ক লিংক রেডি!**\n\n"
-                f"👉 নিচের লিংকে ক্লিক করে টাস্কটি ভিজিট করুন। ভিজিট করা শেষ হলে উপরের মেইন মেসেজের **'Claim Pro Reward'** বাটনে চাপ দিন।",
-                reply_markup=pro_markup
-            )
+            bot.send_message(call.message.chat.id, f"🔥 **আপনার প্রো টাস্ক লিংক রেডি!**\n\n👉 নিচের লিংকে ক্লিক করে টাস্কটি ভিজিট করুন।", reply_markup=pro_markup)
 
         elif call.data == "claim_pro_task":
             pro_url = config['pro_link']
@@ -302,9 +331,7 @@ def callback(call):
                 return
 
             if u_id in user_pro_clicks and user_pro_clicks[u_id] == pro_url:
-                # ম্যালিশিয়াস ডাবল-ক্লিক প্রতিরোধ রেস কন্ডিশন ফিক্স
                 user_pro_clicks.pop(u_id, None) 
-                
                 new_balance = user['balance'] + pro_reward
                 user['completed_pro_links'].append(pro_url)
                 new_pro_links_str = ",".join([x for x in user['completed_pro_links'] if x])
@@ -316,60 +343,11 @@ def callback(call):
                     conn.close()
                 
                 bot.answer_callback_query(call.id, text=f"🎉 অভিনন্দন! অ্যাকাউন্টে {pro_reward} Rupa Coin যোগ করা হয়েছে।", show_alert=True)
-                bot.edit_message_text(
-                    chat_id=call.message.chat.id, 
-                    message_id=call.message.message_id, 
-                    text=f"✅ **PRO টাস্ক সফলভাবে সম্পন্ন!**\n\nআপনি এই টাস্ক থেকে **{pro_reward} Rupa Coin** বোনাস পেয়েছেন।"
-                )
+                bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"✅ **PRO টাস্ক সফলভাবে সম্পন্ন!**")
             else:
-                bot.answer_callback_query(call.id, text="❌ জালিয়াতি সনাক্ত হয়েছে! প্রথমে লিংক বাটনে চাপ দিন।", show_alert=True)
+                bot.answer_callback_query(call.id, text="❌ জاليةতি সনাক্ত হয়েছে! প্রথমে লিংক বাটনে চাপ দিন।", show_alert=True)
                 
-        # ================= সাধারণ বিজ্ঞাপন টাস্ক ব্লক =================
-        elif call.data == "get_ad_link":
-            user_click_timers[u_id] = {"start_time": 0, "clicked": False}
-            bot.answer_callback_query(call.id, text="📥 বিজ্ঞাপন লিংক প্রস্তুত!", show_alert=False)
-            
-            link_markup = types.InlineKeyboardMarkup()
-            link_markup.add(types.InlineKeyboardButton(text="🔗 বিজ্ঞাপন দেখতে এখানে ক্লিক করুন", url=config['ads_link'], callback_data="track_click"))
-            
-            bot.send_message(call.message.chat.id, f"👇 **নিচের বাটনে ক্লিক করে বিজ্ঞাপনে প্রবেশ করুন:**\n\n⚠️ **মনে রাখবেন:** লিংকে ক্লিক করার পর থেকে সময় গণনা শুরু হবে।", reply_markup=link_markup)
-
-        elif call.data == "track_click":
-            user_click_timers[u_id] = {"start_time": time.time(), "clicked": True}
-            bot.answer_callback_query(call.id, text="🚀 আপনার বিজ্ঞাপন দেখা শুরু হয়েছে! কমপক্ষে ১৫ সেকেন্ড দেখুন।", show_alert=False)
-
-        elif call.data == "claim_task1":
-            current_time = time.time()
-            ad_time = config['ads_time']
-            reward = config['ads_reward']
-            
-            if u_id in user_click_timers:
-                if not user_click_timers[u_id]["clicked"]:
-                    bot.answer_callback_query(call.id, text="❌ চরম সতর্কতা! আপনি বিজ্ঞপ্তির লিংকে ক্লিকই করেননি। আগে লিংকে প্রবেশ করুন!", show_alert=True)
-                    return
-                    
-                start_time = user_click_timers[u_id]["start_time"]
-                elapsed_time = current_time - start_time
-                
-                if elapsed_time < ad_time:
-                    remaining_time = int(ad_time - elapsed_time)
-                    bot.answer_callback_query(call.id, text=f"⚠️ ধোঁকাবাজি করবেন না! লিংকে ঢোকার পর মাত্র {int(elapsed_time)} সেকেন্ড হয়েছে। আরও {remaining_time} সেকেন্ড দেখুন!", show_alert=True)
-                else:
-                    # আল্ট্রা রেস কন্ডিশন ফিক্স (বাটন স্প্যামিং এর মাধ্যমে ডাবল আর্নিং ব্লক)
-                    user_click_timers.pop(u_id, None)
-                    
-                    new_balance = user['balance'] + reward
-                    with db_lock:
-                        conn = get_db_connection()
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE users SET balance=? WHERE u_id=?", (new_balance, u_id))
-                        conn.close()
-                    bot.answer_callback_query(call.id, text=f"🎉 সফল হয়েছে! আপনি {reward} Coin বোনাস পেয়েছেন।", show_alert=True)
-                    bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=f"✅ **টাস্ক সম্পূর্ণ!**\n\nআপনার অ্যাকাউন্টে **{reward} Rupa Coin** যোগ করা হয়েছে।")
-            else:
-                bot.answer_callback_query(call.id, text="❌ কোনো একটিভ সেশন পাওয়া যায়নি! প্রথমে বিজ্ঞাপন লিংকটি আনুন এবং ক্লিক করুন।", show_alert=True)
-
-        # ================= পেমেন্ট সেটেলমেন্ট গেটওয়ে =================
+        # ================= পেমেন্ট সেটেলমেন্ট গেটওয়ে (উইথড্র সিস্টেম) =================
         elif call.data == "set_bkash":
             msg = bot.send_message(call.message.chat.id, "আপনার বিকাশ নম্বরটি লিখুন:")
             bot.register_next_step_handler(msg, lambda m: save_num(m, 'bkash'))
@@ -378,25 +356,52 @@ def callback(call):
             bot.register_next_step_handler(msg, lambda m: save_num(m, 'nagad'))
         
         elif call.data == "do_withdraw":
+            # ১. রেস-কন্ডিশন চেক (একই ইউজার একসাথে ডাবল ক্লিক করলে লক করবে)
+            if u_id in active_withdrawals:
+                bot.answer_callback_query(call.id, text="⚠️ আপনার পূর্বের রিকোয়েস্টটি প্রসেস হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন।", show_alert=True)
+                return
+                
             if user['balance'] >= 300:
-                clean_name = user['name'].replace('_', '\\_').replace('*', '\\*')
+                # সেশন লক এক্টিভেট
+                active_withdrawals.add(u_id)
+                
+                # নাম ক্লিনিং ফিল্টার (টেলিগ্রাম মার্কডাউন ফরম্যাট ক্র্যাশ রোধে)
+                clean_name = re.sub(r'[\_*\[\]\(\)~`>#\+\-=|{}.!]', '', user['name'])
                 withdraw_msg = f"🚨 *নতুন উইথড্র রিকোয়েস্ট!*\n\n👤 ইউজার: {clean_name}\n🆔 আইডি: {u_id}\n📱 বিকাশ: {user['bkash']}\n📱 নগদ: {user['nagad']}\n💰 পরিমাণ: {user['balance']} Rupa Coin"
                 
+                # ২. ডাটাবেজ ব্যালেন্স ফ্ল্যাশ লক (পয়েন্ট আগে জিরো হবে, জালিয়াতি রুখতে)
+                with db_lock:
+                    try:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("UPDATE users SET balance=0.0 WHERE u_id=?", (u_id,))
+                        conn.close()
+                    except Exception as db_err:
+                        active_withdrawals.discard(u_id)
+                        bot.answer_callback_query(call.id, text="❌ ডাটাবেজ ব্যস্ত আছে। অনুগ্রহ করে ২ সেকেন্ড পর আবার চেষ্টা করুন।", show_alert=True)
+                        return
+
+                # ৩. অ্যাডমিনকে নোটিফিকেশন পাঠানো (সম্পূর্ণ এরর ট্র্যাপ প্রটেকশনসহ)
+                msg_sent = False
                 try:
                     bot.send_message(ADMIN_ID, withdraw_msg, parse_mode="Markdown")
+                    msg_sent = True
                 except Exception:
-                    bot.send_message(ADMIN_ID, withdraw_msg.replace('*', '').replace('_', ''))
+                    try:
+                        # ব্যাকআপ প্লেইন টেক্সট মেসেজ (টেলিগ্রাম এরর দিলে এটি কাজ করবে)
+                        plain_msg = withdraw_msg.replace('*', '')
+                        bot.send_message(ADMIN_ID, plain_msg)
+                        msg_sent = True
+                    except Exception as admin_err:
+                        print(f"Fatal: Could not notify Admin: {admin_err}")
+
+                # উইথড্র লক রিলিজ
+                active_withdrawals.discard(u_id)
                 
-                with db_lock:
-                    conn = get_db_connection()
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE users SET balance=0.0 WHERE u_id=?", (u_id,))
-                    conn.close()
-                    
-                bot.answer_callback_query(call.id, "✅ উইথড্র রিকোয়েস্ট সফল!")
-                bot.edit_message_text("✅ রিকোয়েস্ট অ্যাডমিনের কাছে পাঠানো হয়েছে।", call.message.chat.id, call.message.message_id)
+                bot.answer_callback_query(call.id, "✅ উইথড্র রিকোয়েস্ট সফল হয়েছে!", show_alert=True)
+                bot.edit_message_text("✅ আপনার রিকোয়েস্টটি অ্যাডমিনের কাছে পাঠানো হয়েছে। খুব শীঘ্রই পেমেন্ট পেয়ে যাবেন।", call.message.chat.id, call.message.message_id)
             else:
-                bot.answer_callback_query(call.id, f"⚠️ সর্বনিম্ন ৩০০ কয়েন প্রয়োজন! আপনার কারেন্ট ব্যালেন্স: {user['balance']}", show_alert=True)
+                bot.answer_callback_query(call.id, f"⚠️ সর্বনিম্ন ৩০০ কয়েন প্রয়োজন! আপনার কারেন্ট ব্যালেন্স: {user['balance']} Rupa Coin", show_alert=True)
     except Exception as e:
         print(f"Callback query global handler exception: {e}")
 
@@ -404,7 +409,7 @@ def save_num(msg, key):
     try:
         u_id = str(msg.from_user.id)
         if not msg.text: return
-        clean_text = msg.text.replace("<", "").replace(">", "").replace("&", "")
+        clean_text = re.sub(r'[<>\'&"\'\*\_]', '', msg.text)
         with db_lock:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -415,6 +420,6 @@ def save_num(msg, key):
         print(f"Error saving safe phone number: {e}")
 
 if __name__ == "__main__":
-    # মাল্টিপল সাব-প্রসেস জ্যাম এবং মেমোরি ফ্লাশ হ্যান্ডলিং ফিক্স
+    # মাল্টিপল সাব-প্রসেস জ্যাম এবং রেন্ডার পোর্ট বাইন্ডিং ফিক্স
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=5000, use_reloader=False, threaded=True)).start()
     run_bot()

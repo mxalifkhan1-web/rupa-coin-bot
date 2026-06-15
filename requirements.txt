@@ -1,4 +1,7 @@
+
 pyTelegramBotAPI
 Flask
 gunicorn
-
+pydantic
+pysqlite3-binary
+certifi
